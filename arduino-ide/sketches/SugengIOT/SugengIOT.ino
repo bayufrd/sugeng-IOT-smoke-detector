@@ -14,11 +14,14 @@
 #define LCD_SCL_PIN 22
 #define THINGSPEAK_UPDATE_INTERVAL_MS 15000UL
 #define FAN_DELAY_MS 1000UL
+#define FAN_ON_PPM_THRESHOLD 150.0f
 #define DUST_THRESHOLD_ADC 800
 
 LiquidCrystal_I2C lcd(0x27, 16, 2);
 unsigned long lastThingSpeakUpdate = 0;
 unsigned long gasDetectedSince = 0;
+unsigned long lastBuzzerToggle = 0;
+bool buzzerState = false;
 
 int readMQ135AnalogAverage() {
   long total = 0;
@@ -54,6 +57,28 @@ int readDustAnalogRaw() {
   digitalWrite(DUST_LED_PIN, HIGH);
   delayMicroseconds(9680);
   return raw;
+}
+
+bool updateBuzzerPattern(bool gasDetected, bool dangerDetected) {
+  unsigned long now = millis();
+
+  if (!gasDetected) {
+    buzzerState = false;
+    lastBuzzerToggle = 0;
+    return false;
+  }
+
+  if (dangerDetected) {
+    buzzerState = true;
+    return true;
+  }
+
+  if (lastBuzzerToggle == 0 || now - lastBuzzerToggle >= 300UL) {
+    lastBuzzerToggle = now;
+    buzzerState = !buzzerState;
+  }
+
+  return buzzerState;
 }
 
 void updateDisplay(float ppmValue, int dustRaw, bool gasDetected, bool dustDetected) {
@@ -164,10 +189,10 @@ void setup() {
   Serial.println("Buzzer -> GPIO27");
   Serial.println("Relay fan -> GPIO26");
   Serial.println("PPM diestimasi dari AO, bukan DO");
-  Serial.println("Threshold buzzer berdasar ppm >= 50");
+  Serial.println("Buzzer ritme aktif saat ppm >= 50");
   Serial.println("AO dibaca dengan ADC 12-bit + averaging");
   Serial.println("ThingSpeak field1=ADC field2=Volt field3=PPM field4=Gas field5=DustDensity field6=Fan");
-  Serial.println("Fan relay aktif 1 detik setelah buzzer ON");
+  Serial.println("Buzzer panjang + fan aktif saat ppm >= 150");
   Serial.println("Test debu: Vo -> GPIO35 | LED -> GPIO25");
 
   connectWiFi();
@@ -182,9 +207,10 @@ void loop() {
   float dustDensity = estimateDustDensity(dustVoltage);
   float ppmEstimate = estimateMQ135PPM(nilaiAnalog);
   bool gasDetected = (ppmEstimate >= 50.0f);
+  bool dangerDetected = (ppmEstimate >= FAN_ON_PPM_THRESHOLD);
   bool dustDetected = (dustRaw >= DUST_THRESHOLD_ADC);
 
-  if (gasDetected) {
+  if (dangerDetected) {
     if (gasDetectedSince == 0) {
       gasDetectedSince = millis();
     }
@@ -192,9 +218,10 @@ void loop() {
     gasDetectedSince = 0;
   }
 
-  bool fanOn = gasDetected && (millis() - gasDetectedSince >= FAN_DELAY_MS);
+  bool fanOn = dangerDetected && (millis() - gasDetectedSince >= FAN_DELAY_MS);
+  bool buzzerOn = updateBuzzerPattern(gasDetected, dangerDetected);
 
-  digitalWrite(BUZZER_PIN, gasDetected ? HIGH : LOW);
+  digitalWrite(BUZZER_PIN, buzzerOn ? HIGH : LOW);
   digitalWrite(FAN_RELAY_PIN, fanOn ? HIGH : LOW);
   updateDisplay(ppmEstimate, dustRaw, gasDetected, dustDetected);
 
@@ -212,14 +239,16 @@ void loop() {
   Serial.print(dustVoltage, 3);
   Serial.print("V | Dust Density: ");
   Serial.print(dustDensity, 3);
-  Serial.print(" mg/m3 | Threshold PPM: 50 | Dust Threshold: ");
+  Serial.print(" mg/m3 | Threshold Beep: 50 | Threshold Fan: 150 | Dust Threshold: ");
   Serial.print(DUST_THRESHOLD_ADC);
-  if (gasDetected) {
+  if (dangerDetected) {
     if (fanOn) {
-      Serial.println(" | Udara tdk normal | Buzzer ON | Fan ON");
+      Serial.println(" | Udara bahaya | Buzzer panjang | Fan ON");
     } else {
-      Serial.println(" | Udara tdk normal | Buzzer ON | Fan delay");
+      Serial.println(" | Udara bahaya | Buzzer panjang | Fan delay");
     }
+  } else if (gasDetected) {
+    Serial.println(" | Udara waspada | Buzzer ritme | Fan OFF");
   } else {
     Serial.println(" | Udara normal | Buzzer OFF | Fan OFF");
   }
@@ -227,7 +256,7 @@ void loop() {
   unsigned long now = millis();
   if (now - lastThingSpeakUpdate >= THINGSPEAK_UPDATE_INTERVAL_MS) {
     lastThingSpeakUpdate = now;
-    sendToThingSpeak(nilaiAnalog, voltageAO, ppmEstimate, gasDetected, dustDensity, fanOn);
+    sendToThingSpeak(nilaiAnalog, voltageAO, ppmEstimate, dangerDetected, dustDensity, fanOn);
   }
 
   delay(1000);

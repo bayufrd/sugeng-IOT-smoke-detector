@@ -488,7 +488,7 @@ Compile sketch `SugengIOT.ino`:
 Upload sketch ke ESP32:
 
 ```bash
-"arduino-ide/Arduino IDE.app/Contents/Resources/app/lib/backend/resources/arduino-cli" upload -p /dev/cu.usbserial-0001 --fqbn esp32:esp32:esp32 arduino-ide/sketches/SugengIOT
+kill 50700 && "arduino-ide/Arduino IDE.app/Contents/Resources/app/lib/backend/resources/arduino-cli" upload -p /dev/cu.usbserial-0001 --fqbn esp32:esp32:esp32 arduino-ide/sketches/SugengIOT
 ```
 
 Live serial monitor:
