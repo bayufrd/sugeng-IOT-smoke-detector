@@ -1,0 +1,40 @@
+.DS_Store
+
+# Arduino IDE app bundle and downloads
+arduino-ide/Arduino IDE.app/
+arduino-ide/downloads/
+arduino-ide_2.3.8_macOS_64bit.dmg
+arduino-ide/*.dmg
+
+# Driver installers and archives
+CH341SER_MAC/
+CH341SER_MAC.ZIP
+*.dmg
+*.zip
+
+# Local Arduino IDE config
+.arduinoIDE/
+
+# Build artifacts
+*.o
+*.obj
+*.a
+*.so
+*.dylib
+*.exe
+*.out
+
+# Arduino / ESP32 build folders
+build/
+dist/
+.tmp/
+tmp/
+
+# Secrets
+arduino-ide/sketches/SugengIOT/config.h
+*.local
+.env
+.env.*
+
+# Documents not needed in repo
+*.docx

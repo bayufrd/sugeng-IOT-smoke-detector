@@ -135,13 +135,17 @@ Jangan upload `config.h` ke repository publik.
 
 | Perangkat | ESP32 |
 |---|---:|
+| MQ-135 DO | GPIO15 |
 | MQ-135 AO | GPIO34 |
 | GP2Y1010 Vo | GPIO35 |
 | GP2Y1010 LED | GPIO25 |
 | LCD SDA | GPIO21 |
 | LCD SCL | GPIO22 |
 | Buzzer | GPIO27 |
-| Fan Relay/MOSFET | GPIO26 |
+| Fan Relay | GPIO26 |
+| Relay Lampu Hijau | GPIO14 |
+| Relay Lampu Kuning | GPIO12 |
+| Relay Lampu Merah | GPIO13 |
 
 Catatan:
 
@@ -149,10 +153,15 @@ Catatan:
 - ADC ESP32 maksimal 3.3V.
 - Gunakan voltage divider jika output sensor 5V.
 - Fan tidak boleh langsung ke pin ESP32.
-- Buzzer saat ini dipakai di GPIO27 sesuai sketch aktif.
-- Relay fan dipakai di GPIO26 sesuai sketch aktif.
+- Buzzer dipakai di GPIO27.
+- Relay fan dipakai di GPIO26.
+- Tiga relay baru dipakai untuk indikator lampu hijau, kuning, merah.
 - Fan DC 2 kabel dikontrol relay sebagai saklar putus/sambung jalur positif.
-- Logika sketch aktif: jika estimasi ppm `>= 80`, buzzer ON dan relay fan ON.
+- Logika PPM aktif sekarang:
+  - `0-49` -> lampu hijau ON.
+  - `50-149` -> lampu kuning ON, buzzer flashing terus, fan OFF.
+  - `>=150` -> lampu merah ON, buzzer bunyi terus, fan ON.
+- Logika dust aktif sekarang: `dustRaw >= 800` -> lampu kuning ON dan fan ON.
 - Fan DC gunakan MOSFET jika ingin solusi lebih halus dan awet.
 - Fan AC gunakan relay/SSR dengan isolasi.
 
@@ -303,16 +312,18 @@ Baud:
 Log wajib:
 
 ```text
-WiFi status
+Wifi : ON / OFF
 IP address
 MQ135 ADC
 MQ135 voltage
+PPM : x | normal / warning / danger | Wifi : ON / OFF
 Dust ADC
 Dust voltage
 Dust density
-Air quality status
+Dust status
 Fan status
 Buzzer status
+Status relay hijau / kuning / merah
 ThingSpeak HTTP response
 Free heap
 ```
@@ -326,14 +337,21 @@ Free heap
 - Warm-up minimal 5–10 menit.
 - Catat baseline udara bersih.
 - Uji dengan asap ringan.
-- Gunakan threshold awal `baseline + 30%`.
+- Gunakan rule status aktif di sketch:
+  - `PPM 0-49` = `normal`.
+  - `PPM 50-149` = `warning`.
+  - `PPM >= 150` = `danger`.
+- Saat `warning`, lampu kuning ON dan buzzer flashing terus.
+- Saat `danger`, lampu merah ON, fan ON, buzzer bunyi terus.
 
 ### GP2Y1010AU0F
 
 - Pastikan timing LED pulse benar.
 - Gunakan kapasitor 220µF jika dibutuhkan.
 - Catat ADC udara bersih dan kondisi berdebu.
-- Gunakan threshold awal `baseline + 30%`.
+- Rule dust aktif di sketch hanya satu level: `dustRaw >= 800`.
+- Saat `dustRaw >= 800`, lampu kuning ON dan fan ON.
+- Dust tidak memakai banyak level status.
 
 ---
 
@@ -372,7 +390,7 @@ Arti field dari sketch aktif di [`sendToThingSpeak()`](arduino-ide/sketches/Suge
 field1 = MQ135 ADC
 field2 = MQ135 Voltage
 field3 = MQ135 PPM
-field4 = Gas Status (0 normal, 1 terdeteksi)
+field4 = Gas Status (0 normal, 1 warning/danger)
 field5 = Dust Density (mg/m3)
 field6 = Fan Status (0 OFF, 1 ON)
 ```
@@ -380,10 +398,11 @@ field6 = Fan Status (0 OFF, 1 ON)
 Catatan penting:
 
 - `Field 5` di sketch aktif sekarang isi `Dust Density (mg/m3)`.
-- Estimasi density dihitung dari [`estimateDustDensity()`](arduino-ide/sketches/SugengIOT/SugengIOT.ino:41).
+- Estimasi density dihitung dari [`estimateDustDensity()`](arduino-ide/sketches/SugengIOT/SugengIOT.ino:44).
 - Rumus awal: `(dustVoltage - 0.6) / 0.005` lalu nilai negatif jadi `0`.
 - Threshold debu di sketch aktif = `800` ADC.
-- Log serial sekarang menampilkan tegangan, density, threshold ppm, dan threshold dust.
+- Field gas sekarang bernilai `1` untuk `warning` atau `danger`, dan `0` untuk `normal`.
+- Log serial sekarang menampilkan format `PPM : x | status | Wifi : ON / OFF` plus relay hijau/kuning/merah.
 - Interval upload minimal tetap `15 detik`.
 - Simpan `Write API Key` lalu isi ke [`config.h`](arduino-ide/sketches/SugengIOT/config.h).
 
@@ -424,10 +443,11 @@ Checklist:
 - Sensor GP2Y1010AU0F terbaca.
 - WiFi connect.
 - ThingSpeak menerima data.
-- Fan ON saat status buruk.
-- Buzzer ON saat status buruk.
-- Fan OFF saat udara membaik.
-- Gunakan hysteresis agar fan tidak berkedip.
+- `PPM 0-49` menyalakan lampu hijau.
+- `PPM 50-149` menyalakan lampu kuning, buzzer flashing, fan OFF.
+- `PPM >= 150` menyalakan lampu merah, buzzer bunyi terus, fan ON.
+- `dustRaw >= 800` menyalakan lampu kuning dan fan ON.
+- LCD dan serial menampilkan `Wifi : ON` atau `Wifi : OFF`.
 - Casing punya ventilasi.
 - Kabel rapi dan aman.
 - Relay/fan AC diberi isolasi.
@@ -443,8 +463,12 @@ Tanggal pengujian
 Lokasi
 ADC udara bersih
 ADC asap/debu
-Threshold ON
-Threshold OFF
+Threshold PPM 50
+Threshold PPM 150
+Threshold dust 800
+Status relay hijau
+Status relay kuning
+Status relay merah
 Status fan
 Status buzzer
 Response ThingSpeak
@@ -488,7 +512,7 @@ Compile sketch `SugengIOT.ino`:
 Upload sketch ke ESP32:
 
 ```bash
-kill 50700 && "arduino-ide/Arduino IDE.app/Contents/Resources/app/lib/backend/resources/arduino-cli" upload -p /dev/cu.usbserial-0001 --fqbn esp32:esp32:esp32 arduino-ide/sketches/SugengIOT
+"arduino-ide/Arduino IDE.app/Contents/Resources/app/lib/backend/resources/arduino-cli" upload -p /dev/cu.usbserial-0001 --fqbn esp32:esp32:esp32 arduino-ide/sketches/SugengIOT
 ```
 
 Live serial monitor:

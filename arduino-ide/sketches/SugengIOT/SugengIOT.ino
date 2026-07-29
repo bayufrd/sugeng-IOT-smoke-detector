@@ -8,18 +8,20 @@
 #define MQ135_AO_PIN 34
 #define BUZZER_PIN 27
 #define FAN_RELAY_PIN 26
+#define GREEN_RELAY_PIN 14
+#define YELLOW_RELAY_PIN 12
+#define RED_RELAY_PIN 13
 #define DUST_VO_PIN 35
 #define DUST_LED_PIN 25
 #define LCD_SDA_PIN 21
 #define LCD_SCL_PIN 22
 #define THINGSPEAK_UPDATE_INTERVAL_MS 15000UL
-#define FAN_DELAY_MS 1000UL
-#define FAN_ON_PPM_THRESHOLD 150.0f
+#define PPM_WARNING_THRESHOLD 50.0f
+#define PPM_DANGER_THRESHOLD 150.0f
 #define DUST_THRESHOLD_ADC 800
 
 LiquidCrystal_I2C lcd(0x27, 16, 2);
 unsigned long lastThingSpeakUpdate = 0;
-unsigned long gasDetectedSince = 0;
 unsigned long lastBuzzerToggle = 0;
 bool buzzerState = false;
 
@@ -59,18 +61,32 @@ int readDustAnalogRaw() {
   return raw;
 }
 
-bool updateBuzzerPattern(bool gasDetected, bool dangerDetected) {
+#define AIR_NORMAL 0
+#define AIR_WARNING 1
+#define AIR_DANGER 2
+
+const char* getAirStatusLabel(int status) {
+  if (status == AIR_WARNING) {
+    return "warning";
+  }
+  if (status == AIR_DANGER) {
+    return "danger";
+  }
+  return "normal";
+}
+
+bool updateBuzzerPattern(int airStatus) {
   unsigned long now = millis();
 
-  if (!gasDetected) {
+  if (airStatus == AIR_DANGER) {
+    buzzerState = true;
+    return true;
+  }
+
+  if (airStatus != AIR_WARNING) {
     buzzerState = false;
     lastBuzzerToggle = 0;
     return false;
-  }
-
-  if (dangerDetected) {
-    buzzerState = true;
-    return true;
   }
 
   if (lastBuzzerToggle == 0 || now - lastBuzzerToggle >= 300UL) {
@@ -81,19 +97,17 @@ bool updateBuzzerPattern(bool gasDetected, bool dangerDetected) {
   return buzzerState;
 }
 
-void updateDisplay(float ppmValue, int dustRaw, bool gasDetected, bool dustDetected) {
+void updateDisplay(float ppmValue, const char* airStatusLabel, bool wifiOn) {
   lcd.clear();
   lcd.setCursor(0, 0);
   lcd.print("PPM:");
   lcd.print(ppmValue, 0);
   lcd.print("|");
-  lcd.print(gasDetected ? "deteksi" : "normal ");
+  lcd.print(airStatusLabel);
 
   lcd.setCursor(0, 1);
-  lcd.print("D:");
-  lcd.print(dustRaw);
-  lcd.print("|");
-  lcd.print(dustDetected ? "deteksi" : "normal ");
+  lcd.print("Wifi:");
+  lcd.print(wifiOn ? "ON " : "OFF");
 }
 
 void connectWiFi() {
@@ -158,9 +172,15 @@ void setup() {
   pinMode(MQ135_DO_PIN, INPUT);
   pinMode(BUZZER_PIN, OUTPUT);
   pinMode(FAN_RELAY_PIN, OUTPUT);
+  pinMode(GREEN_RELAY_PIN, OUTPUT);
+  pinMode(YELLOW_RELAY_PIN, OUTPUT);
+  pinMode(RED_RELAY_PIN, OUTPUT);
   pinMode(DUST_LED_PIN, OUTPUT);
   digitalWrite(BUZZER_PIN, LOW);
   digitalWrite(FAN_RELAY_PIN, LOW);
+  digitalWrite(GREEN_RELAY_PIN, LOW);
+  digitalWrite(YELLOW_RELAY_PIN, LOW);
+  digitalWrite(RED_RELAY_PIN, LOW);
   digitalWrite(DUST_LED_PIN, HIGH);
   digitalWrite(BUZZER_PIN, HIGH);
   delay(200);
@@ -188,11 +208,13 @@ void setup() {
   Serial.println("LCD SCL -> GPIO22");
   Serial.println("Buzzer -> GPIO27");
   Serial.println("Relay fan -> GPIO26");
-  Serial.println("PPM diestimasi dari AO, bukan DO");
-  Serial.println("Buzzer ritme aktif saat ppm >= 50");
+  Serial.println("Relay hijau -> GPIO14");
+  Serial.println("Relay kuning -> GPIO12");
+  Serial.println("Relay merah -> GPIO13");
+  Serial.println("PPM 0-49 hijau | 50-149 kuning + buzzer ritme | >=150 fan + buzzer panjang");
+  Serial.println("Dust >= 800 paksa kuning + fan ON");
   Serial.println("AO dibaca dengan ADC 12-bit + averaging");
   Serial.println("ThingSpeak field1=ADC field2=Volt field3=PPM field4=Gas field5=DustDensity field6=Fan");
-  Serial.println("Buzzer panjang + fan aktif saat ppm >= 150");
   Serial.println("Test debu: Vo -> GPIO35 | LED -> GPIO25");
 
   connectWiFi();
@@ -206,24 +228,28 @@ void loop() {
   float dustVoltage = analogToVoltage(dustRaw);
   float dustDensity = estimateDustDensity(dustVoltage);
   float ppmEstimate = estimateMQ135PPM(nilaiAnalog);
-  bool gasDetected = (ppmEstimate >= 50.0f);
-  bool dangerDetected = (ppmEstimate >= FAN_ON_PPM_THRESHOLD);
   bool dustDetected = (dustRaw >= DUST_THRESHOLD_ADC);
+  bool wifiOn = (WiFi.status() == WL_CONNECTED);
 
-  if (dangerDetected) {
-    if (gasDetectedSince == 0) {
-      gasDetectedSince = millis();
-    }
-  } else {
-    gasDetectedSince = 0;
+  int airStatus = AIR_NORMAL;
+  if (ppmEstimate >= PPM_DANGER_THRESHOLD) {
+    airStatus = AIR_DANGER;
+  } else if (ppmEstimate >= PPM_WARNING_THRESHOLD) {
+    airStatus = AIR_WARNING;
   }
 
-  bool fanOn = dangerDetected && (millis() - gasDetectedSince >= FAN_DELAY_MS);
-  bool buzzerOn = updateBuzzerPattern(gasDetected, dangerDetected);
+  bool fanOn = (airStatus == AIR_DANGER) || dustDetected;
+  bool buzzerOn = updateBuzzerPattern(airStatus);
+  bool greenRelayOn = (airStatus == AIR_NORMAL) && !dustDetected;
+  bool yellowRelayOn = (airStatus == AIR_WARNING) || dustDetected;
+  bool redRelayOn = (airStatus == AIR_DANGER);
 
   digitalWrite(BUZZER_PIN, buzzerOn ? HIGH : LOW);
   digitalWrite(FAN_RELAY_PIN, fanOn ? HIGH : LOW);
-  updateDisplay(ppmEstimate, dustRaw, gasDetected, dustDetected);
+  digitalWrite(GREEN_RELAY_PIN, greenRelayOn ? HIGH : LOW);
+  digitalWrite(YELLOW_RELAY_PIN, yellowRelayOn ? HIGH : LOW);
+  digitalWrite(RED_RELAY_PIN, redRelayOn ? HIGH : LOW);
+  updateDisplay(ppmEstimate, getAirStatusLabel(airStatus), wifiOn);
 
   Serial.print("Nilai DO MQ-135: ");
   Serial.print(nilaiDigital);
@@ -231,33 +257,36 @@ void loop() {
   Serial.print(nilaiAnalog);
   Serial.print(" | AO Volt: ");
   Serial.print(voltageAO, 3);
-  Serial.print("V | Estimasi ppm: ");
+  Serial.print("V | PPM : ");
   Serial.print(ppmEstimate, 0);
+  Serial.print(" | ");
+  Serial.print(getAirStatusLabel(airStatus));
+  Serial.print(" | Wifi : ");
+  Serial.print(wifiOn ? "ON" : "OFF");
   Serial.print(" | Dust ADC: ");
   Serial.print(dustRaw);
   Serial.print(" | Dust Volt: ");
   Serial.print(dustVoltage, 3);
   Serial.print("V | Dust Density: ");
   Serial.print(dustDensity, 3);
-  Serial.print(" mg/m3 | Threshold Beep: 50 | Threshold Fan: 150 | Dust Threshold: ");
-  Serial.print(DUST_THRESHOLD_ADC);
-  if (dangerDetected) {
-    if (fanOn) {
-      Serial.println(" | Udara bahaya | Buzzer panjang | Fan ON");
-    } else {
-      Serial.println(" | Udara bahaya | Buzzer panjang | Fan delay");
-    }
-  } else if (gasDetected) {
-    Serial.println(" | Udara waspada | Buzzer ritme | Fan OFF");
-  } else {
-    Serial.println(" | Udara normal | Buzzer OFF | Fan OFF");
-  }
+  Serial.print(" mg/m3 | Dust Status: ");
+  Serial.print(dustDetected ? "warning" : "normal");
+  Serial.print(" | Fan: ");
+  Serial.print(fanOn ? "ON" : "OFF");
+  Serial.print(" | Buzzer: ");
+  Serial.print(buzzerOn ? (airStatus == AIR_DANGER ? "CONTINUOUS" : "FLASHING") : "OFF");
+  Serial.print(" | Relay Hijau: ");
+  Serial.print(greenRelayOn ? "ON" : "OFF");
+  Serial.print(" | Relay Kuning: ");
+  Serial.print(yellowRelayOn ? "ON" : "OFF");
+  Serial.print(" | Relay Merah: ");
+  Serial.println(redRelayOn ? "ON" : "OFF");
 
   unsigned long now = millis();
   if (now - lastThingSpeakUpdate >= THINGSPEAK_UPDATE_INTERVAL_MS) {
     lastThingSpeakUpdate = now;
-    sendToThingSpeak(nilaiAnalog, voltageAO, ppmEstimate, dangerDetected, dustDensity, fanOn);
+    sendToThingSpeak(nilaiAnalog, voltageAO, ppmEstimate, airStatus != AIR_NORMAL, dustDensity, fanOn);
   }
 
-  delay(1000);
+  delay(200);
 }
