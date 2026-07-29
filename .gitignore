@@ -11,6 +11,7 @@ CH341SER_MAC/
 CH341SER_MAC.ZIP
 *.dmg
 *.zip
+.vscode
 
 # Local Arduino IDE config
 .arduinoIDE/
