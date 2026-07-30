@@ -20,7 +20,7 @@
 #define PPM_DANGER_THRESHOLD 150.0f
 #define DUST_THRESHOLD_ADC 800
 
-LiquidCrystal_I2C lcd(0x27, 16, 2);
+LiquidCrystal_I2C lcd(0x27, 20, 4);
 unsigned long lastThingSpeakUpdate = 0;
 unsigned long lastBuzzerToggle = 0;
 bool buzzerState = false;
@@ -97,16 +97,34 @@ bool updateBuzzerPattern(int airStatus) {
   return buzzerState;
 }
 
-void updateDisplay(float ppmValue, const char* airStatusLabel, bool wifiOn) {
+void updateDisplay(float ppmValue, const char* airStatusLabel, bool wifiOn, float dustDensity, bool fanOn, bool greenOn, bool yellowOn, bool redOn) {
   lcd.clear();
+  
+  // Baris 1: PPM dan status
   lcd.setCursor(0, 0);
   lcd.print("PPM:");
   lcd.print(ppmValue, 0);
-  lcd.print("|");
+  lcd.print(" | ");
   lcd.print(airStatusLabel);
-
+  
+  // Baris 2: Debu density
   lcd.setCursor(0, 1);
-  lcd.print("Wifi:");
+  lcd.print("Dust:");
+  lcd.print(dustDensity, 1);
+  lcd.print(" mg/m3");
+  
+  // Baris 3: Status relay
+  lcd.setCursor(0, 2);
+  lcd.print("LED:");
+  lcd.print(greenOn ? "G" : "-");
+  lcd.print(yellowOn ? "Y" : "-");
+  lcd.print(redOn ? "R" : "-");
+  lcd.print(" Fan:");
+  lcd.print(fanOn ? "ON " : "OFF");
+  
+  // Baris 4: WiFi status
+  lcd.setCursor(0, 3);
+  lcd.print("WiFi:");
   lcd.print(wifiOn ? "ON " : "OFF");
 }
 
@@ -195,10 +213,14 @@ void setup() {
   lcd.backlight();
   lcd.clear();
   lcd.setCursor(0, 0);
-  lcd.print("Sugeng IOT");
+  lcd.print("    Sugeng IOT");
   lcd.setCursor(0, 1);
-  lcd.print("MQ135 AO Test");
-  delay(1500);
+  lcd.print("  Air Quality Mon");
+  lcd.setCursor(0, 2);
+  lcd.print("MQ135 + GP2Y1010");
+  lcd.setCursor(0, 3);
+  lcd.print("    Starting...");
+  delay(2000);
 
   Serial.println("Sugeng IOT start");
   Serial.println("Wiring test awal aktif");
@@ -249,7 +271,7 @@ void loop() {
   digitalWrite(GREEN_RELAY_PIN, greenRelayOn ? HIGH : LOW);
   digitalWrite(YELLOW_RELAY_PIN, yellowRelayOn ? HIGH : LOW);
   digitalWrite(RED_RELAY_PIN, redRelayOn ? HIGH : LOW);
-  updateDisplay(ppmEstimate, getAirStatusLabel(airStatus), wifiOn);
+  updateDisplay(ppmEstimate, getAirStatusLabel(airStatus), wifiOn, dustDensity, fanOn, greenRelayOn, yellowRelayOn, redRelayOn);
 
   Serial.print("Nilai DO MQ-135: ");
   Serial.print(nilaiDigital);

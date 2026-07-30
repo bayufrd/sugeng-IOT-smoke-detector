@@ -149,6 +149,8 @@ Jangan upload `config.h` ke repository publik.
 
 Catatan:
 
+- **LCD yang dipakai: LCD 20x4 I2C (modul 2004) dengan address 0x27.**
+- Pin I2C: SDA GPIO21, SCL GPIO22 (sama dengan LCD 16x2 sebelumnya).
 - GPIO34/35 hanya input.
 - ADC ESP32 maksimal 3.3V.
 - Gunakan voltage divider jika output sensor 5V.
