@@ -1,9 +1,11 @@
+// install library yang dibutuhkan: LiquidCrystal_I2C, WiFi, HTTPClient
 #include <Wire.h>
 #include <WiFi.h>
 #include <HTTPClient.h>
 #include <LiquidCrystal_I2C.h>
 #include "config.h"
 
+// inisiasi pin dan konstanta 
 #define MQ135_DO_PIN 15
 #define MQ135_AO_PIN 34
 #define BUZZER_PIN 27
@@ -15,16 +17,18 @@
 #define DUST_LED_PIN 25
 #define LCD_SDA_PIN 21
 #define LCD_SCL_PIN 22
-#define THINGSPEAK_UPDATE_INTERVAL_MS 15000UL
-#define PPM_WARNING_THRESHOLD 50.0f
-#define PPM_DANGER_THRESHOLD 150.0f
-#define DUST_THRESHOLD_ADC 800
+#define THINGSPEAK_UPDATE_INTERVAL_MS 15000UL // 15 detik batas waktu update ThingSpeak
+#define PPM_WARNING_THRESHOLD 50.0f // ambang batas PPM untuk status warning
+#define PPM_DANGER_THRESHOLD 150.0f // ambang batas PPM untuk status danger
+#define DUST_THRESHOLD_ADC 800 // ambang batas ADC untuk status warning debu
 
+// inisialisasi LCD I2C 20x4 
 LiquidCrystal_I2C lcd(0x27, 20, 4);
 unsigned long lastThingSpeakUpdate = 0;
 unsigned long lastBuzzerToggle = 0;
 bool buzzerState = false;
 
+// Fungsi untuk membaca nilai analog MQ135 dengan rata-rata
 int readMQ135AnalogAverage() {
   long total = 0;
   for (int i = 0; i < 16; i++) {
@@ -34,15 +38,18 @@ int readMQ135AnalogAverage() {
   return total / 16;
 }
 
+// Fungsi untuk mengubah nilai analog menjadi tegangan (Volt)
 float analogToVoltage(int analogValue) {
   return analogValue * (3.3f / 4095.0f);
 }
 
+// Fungsi untuk memperkirakan nilai PPM MQ135
 float estimateMQ135PPM(int analogValue) {
   float voltage = analogToVoltage(analogValue);
   return voltage * 300.0f;
 }
 
+// Fungsi untuk memperkirakan kepadatan debu (mg/m3) dari tegangan debu
 float estimateDustDensity(float dustVoltage) {
   float densityMgM3 = (dustVoltage - 0.6f) / 0.005f;
   if (densityMgM3 < 0.0f) {
@@ -51,6 +58,7 @@ float estimateDustDensity(float dustVoltage) {
   return densityMgM3;
 }
 
+// Fungsi untuk membaca nilai analog debu
 int readDustAnalogRaw() {
   digitalWrite(DUST_LED_PIN, LOW);
   delayMicroseconds(280);
@@ -61,10 +69,12 @@ int readDustAnalogRaw() {
   return raw;
 }
 
+// Fungsi untuk mendapatkan label status udara berdasarkan nilai status
 #define AIR_NORMAL 0
 #define AIR_WARNING 1
 #define AIR_DANGER 2
 
+// Fungsi untuk mendapatkan label status udara berdasarkan nilai status
 const char* getAirStatusLabel(int status) {
   if (status == AIR_WARNING) {
     return "warning";
@@ -75,6 +85,7 @@ const char* getAirStatusLabel(int status) {
   return "normal";
 }
 
+// Fungsi untuk mengatur pola buzzer berdasarkan status udara
 bool updateBuzzerPattern(int airStatus) {
   unsigned long now = millis();
 
@@ -97,6 +108,7 @@ bool updateBuzzerPattern(int airStatus) {
   return buzzerState;
 }
 
+// Fungsi untuk memperbarui tampilan LCD dengan informasi terbaru
 void updateDisplay(float ppmValue, const char* airStatusLabel, bool wifiOn, float dustDensity, bool fanOn, bool greenOn, bool yellowOn, bool redOn) {
   lcd.clear();
   
@@ -128,6 +140,7 @@ void updateDisplay(float ppmValue, const char* airStatusLabel, bool wifiOn, floa
   lcd.print(wifiOn ? "ON " : "OFF");
 }
 
+// Fungsi untuk menghubungkan ke WiFi 
 void connectWiFi() {
   Serial.print("Connecting WiFi");
   WiFi.mode(WIFI_STA);
@@ -149,6 +162,7 @@ void connectWiFi() {
   }
 }
 
+// Fungsi untuk mengirim data ke ThingSpeak
 void sendToThingSpeak(int analogValue, float voltageAO, float ppmEstimate, bool gasDetected, float dustDensity, bool fanOn) {
   if (WiFi.status() != WL_CONNECTED) {
     connectWiFi();
@@ -159,6 +173,7 @@ void sendToThingSpeak(int analogValue, float voltageAO, float ppmEstimate, bool 
     return;
   }
 
+// Membangun URL untuk mengirim data ke ThingSpeak  
   String url = "https://api.thingspeak.com/update?api_key=";
   url += THINGSPEAK_API_KEY;
   url += "&field1=";
@@ -185,6 +200,7 @@ void sendToThingSpeak(int analogValue, float voltageAO, float ppmEstimate, bool 
   http.end();
 }
 
+// fungsi utama pada app inisialisasi pin tampilan board led dll
 void setup() {
   Serial.begin(115200);
   pinMode(MQ135_DO_PIN, INPUT);
@@ -222,6 +238,7 @@ void setup() {
   lcd.print("    Starting...");
   delay(2000);
 
+  // debuggin pada console atau log terminal
   Serial.println("Sugeng IOT start");
   Serial.println("Wiring test awal aktif");
   Serial.println("MQ-135 DO -> GPIO15");
@@ -242,17 +259,24 @@ void setup() {
   connectWiFi();
 }
 
+// fungsi utama looping atau pengulanangan pengecekan pada esp dan alatnya
 void loop() {
+  // int inisiasi penyimpanan interger / numberic pasti (1,2,3,0)
   int nilaiDigital = digitalRead(MQ135_DO_PIN);
   int nilaiAnalog = readMQ135AnalogAverage();
   int dustRaw = readDustAnalogRaw();
+
+  // inisiasi penyimpanan angka decimal koma dibelakang 
   float voltageAO = analogToVoltage(nilaiAnalog);
   float dustVoltage = analogToVoltage(dustRaw);
   float dustDensity = estimateDustDensity(dustVoltage);
   float ppmEstimate = estimateMQ135PPM(nilaiAnalog);
+
+  // fungsi penyimpanan logika true / false 
   bool dustDetected = (dustRaw >= DUST_THRESHOLD_ADC);
   bool wifiOn = (WiFi.status() == WL_CONNECTED);
 
+  // pengecekan status apakah sudah sesuai dengan batas yang ditentukan atau belum
   int airStatus = AIR_NORMAL;
   if (ppmEstimate >= PPM_DANGER_THRESHOLD) {
     airStatus = AIR_DANGER;
@@ -260,12 +284,14 @@ void loop() {
     airStatus = AIR_WARNING;
   }
 
+  // inisiasi lagi penggunaan apakah perlu nyala atau tidak jika telah memenuhi suatu kondisi yang telah ditentukan
   bool fanOn = (airStatus == AIR_DANGER) || dustDetected;
   bool buzzerOn = updateBuzzerPattern(airStatus);
   bool greenRelayOn = (airStatus == AIR_NORMAL) && !dustDetected;
   bool yellowRelayOn = (airStatus == AIR_WARNING) || dustDetected;
   bool redRelayOn = (airStatus == AIR_DANGER);
 
+  // inisiasi tampilan dari led yang mana sesuai keadaan yang didapatkan dari pengecekan 
   digitalWrite(BUZZER_PIN, buzzerOn ? HIGH : LOW);
   digitalWrite(FAN_RELAY_PIN, fanOn ? HIGH : LOW);
   digitalWrite(GREEN_RELAY_PIN, greenRelayOn ? HIGH : LOW);
@@ -273,6 +299,7 @@ void loop() {
   digitalWrite(RED_RELAY_PIN, redRelayOn ? HIGH : LOW);
   updateDisplay(ppmEstimate, getAirStatusLabel(airStatus), wifiOn, dustDensity, fanOn, greenRelayOn, yellowRelayOn, redRelayOn);
 
+  // console log debuggin tampilan untuk mengecek adanya error atau tidak
   Serial.print("Nilai DO MQ-135: ");
   Serial.print(nilaiDigital);
   Serial.print(" | ADC AO: ");
@@ -304,6 +331,8 @@ void loop() {
   Serial.print(" | Relay Merah: ");
   Serial.println(redRelayOn ? "ON" : "OFF");
 
+
+  // fungsi mengirim sesuai interval atau ambang batas yang ditentukan diatas yaitu update per 15 detik mengirim data
   unsigned long now = millis();
   if (now - lastThingSpeakUpdate >= THINGSPEAK_UPDATE_INTERVAL_MS) {
     lastThingSpeakUpdate = now;

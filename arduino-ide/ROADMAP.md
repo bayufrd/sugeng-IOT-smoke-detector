@@ -330,6 +330,146 @@ ThingSpeak HTTP response
 Free heap
 ```
 
+### Tampilan LCD 20x4 (2004 I2C)
+
+Firmware terbaru menggunakan **LCD 20x4 I2C** dengan address `0x27`. Layout display 4 baris:
+
+```text
+Baris 1: PPM:xxx | status
+Baris 2: Dust:xx.x mg/m3
+Baris 3: LED:GYR Fan:ON/OFF
+Baris 4: WiFi:ON/OFF
+```
+
+Detail setiap baris:
+
+**Baris 1 - Informasi PPM dan Status Udara:**
+```text
+PPM:123 | warning
+```
+- `PPM:xxx`: Nilai PPM estimasi dari sensor MQ-135 (0-999)
+- `status`: Status udara (`normal` / `warning` / `danger`)
+
+**Baris 2 - Kepadatan Debu:**
+```text
+Dust:45.2 mg/m3
+```
+- `Dust:xx.x`: Kepadatan debu dalam mg/m³ dari sensor GP2Y1010AU0F
+- Range: 0.0 - 999.9 mg/m³
+
+**Baris 3 - Status Relay Indikator dan Fan:**
+```text
+LED:G-R Fan:ON
+```
+- `LED:`: Status 3 relay indicator lampu
+  - `G` = Green relay ON (PPM 0-49, kondisi normal)
+  - `Y` = Yellow relay ON (PPM 50-149 warning, atau dust ≥800)
+  - `R` = Red relay ON (PPM ≥150 danger)
+  - `-` = Relay OFF
+- `Fan:`: Status exhaust fan (`ON` atau `OFF`)
+
+**Baris 4 - Status WiFi:**
+```text
+WiFi:ON
+```
+- `WiFi:ON`: Terhubung ke WiFi dan ThingSpeak
+- `WiFi:OFF`: Tidak terhubung (sistem tetap berjalan lokal)
+
+**Splash Screen Startup (2 detik):**
+```text
+    Sugeng IOT
+  Air Quality Mon
+MQ135 + GP2Y1010
+    Starting...
+```
+
+### Perubahan dari LCD 16x2 ke 20x4
+
+Keuntungan upgrade LCD 20x4:
+
+1. **Informasi lebih lengkap** - 4 baris vs 2 baris
+2. **Dust density tampil** - Sebelumnya tidak ada di display
+3. **Status relay tampil** - Visual feedback LED indicator (G/Y/R)
+4. **Status fan tampil** - Monitor exhaust fan real-time
+5. **Layout lebih rapi** - 20 karakter per baris vs 16 karakter
+
+Wiring tetap sama:
+- SDA: GPIO21
+- SCL: GPIO22
+- I2C address: 0x27 (atau 0x3F, sesuai modul)
+- Power: 5V dari power supply eksternal (bukan dari pin 3.3V ESP32)
+
+---
+
+### Format Output Serial Monitor
+
+Firmware terbaru menampilkan output serial yang lengkap setiap 200ms:
+
+**Contoh output normal (PPM < 50, dust < 800):**
+```text
+Nilai DO MQ-135: 1 | ADC AO: 1234 | AO Volt: 0.991V | PPM : 297 | normal | Wifi : ON | Dust ADC: 650 | Dust Volt: 0.522V | Dust Density: 0.000 mg/m3 | Dust Status: normal | Fan: OFF | Buzzer: OFF | Relay Hijau: ON | Relay Kuning: OFF | Relay Merah: OFF
+```
+
+**Contoh output warning (PPM 50-149):**
+```text
+Nilai DO MQ-135: 0 | ADC AO: 1850 | AO Volt: 1.487V | PPM : 446 | warning | Wifi : ON | Dust ADC: 720 | Dust Volt: 0.579V | Dust Density: 0.000 mg/m3 | Dust Status: normal | Fan: OFF | Buzzer: FLASHING | Relay Hijau: OFF | Relay Kuning: ON | Relay Merah: OFF
+```
+
+**Contoh output danger (PPM ≥ 150):**
+```text
+Nilai DO MQ-135: 0 | ADC AO: 2200 | AO Volt: 1.769V | PPM : 531 | danger | Wifi : ON | Dust ADC: 900 | Dust Volt: 0.724V | Dust Density: 24.800 mg/m3 | Dust Status: warning | Fan: ON | Buzzer: CONTINUOUS | Relay Hijau: OFF | Relay Kuning: OFF | Relay Merah: ON
+```
+
+**Penjelasan field output:**
+
+| Field | Keterangan | Range |
+|---|---|---|
+| `Nilai DO MQ-135` | Digital output sensor MQ-135 | 0 (gas terdeteksi) / 1 (normal) |
+| `ADC AO` | Nilai ADC 12-bit analog output MQ-135 | 0-4095 |
+| `AO Volt` | Tegangan analog MQ-135 dalam Volt | 0.000-3.300V |
+| `PPM` | Estimasi PPM gas polutan | 0-999 |
+| `status` | Status kualitas udara | `normal` / `warning` / `danger` |
+| `Wifi` | Status koneksi WiFi | `ON` / `OFF` |
+| `Dust ADC` | Nilai ADC debu dari GP2Y1010AU0F | 0-4095 |
+| `Dust Volt` | Tegangan output sensor debu | 0.000-3.300V |
+| `Dust Density` | Kepadatan debu dalam mg/m³ | 0.000-999.999 |
+| `Dust Status` | Status debu | `normal` (< 800) / `warning` (≥ 800) |
+| `Fan` | Status exhaust fan | `ON` / `OFF` |
+| `Buzzer` | Pola buzzer aktif | `OFF` / `FLASHING` / `CONTINUOUS` |
+| `Relay Hijau` | Status relay lampu hijau (normal) | `ON` / `OFF` |
+| `Relay Kuning` | Status relay lampu kuning (warning) | `ON` / `OFF` |
+| `Relay Merah` | Status relay lampu merah (danger) | `ON` / `OFF` |
+
+**Output startup serial:**
+```text
+Sugeng IOT start
+Wiring test awal aktif
+MQ-135 DO -> GPIO15
+MQ-135 AO -> GPIO34
+LCD SDA -> GPIO21
+LCD SCL -> GPIO22
+Buzzer -> GPIO27
+Relay fan -> GPIO26
+Relay hijau -> GPIO14
+Relay kuning -> GPIO12
+Relay merah -> GPIO13
+PPM 0-49 hijau | 50-149 kuning + buzzer ritme | >=150 fan + buzzer panjang
+Dust >= 800 paksa kuning + fan ON
+AO dibaca dengan ADC 12-bit + averaging
+ThingSpeak field1=ADC field2=Volt field3=PPM field4=Gas field5=DustDensity field6=Fan
+Test debu: Vo -> GPIO35 | LED -> GPIO25
+Connecting WiFi........
+WiFi connected: 192.168.1.100
+```
+
+**Output ThingSpeak:**
+```text
+ThingSpeak response: 200
+123456
+```
+- `200` = HTTP OK, data berhasil dikirim
+- `123456` = Entry ID dari ThingSpeak
+
 ---
 
 ## 11. Tahap 9 — Debugging Sensor
@@ -435,7 +575,112 @@ field6 = Fan Status
 
 ---
 
-## 13. Tahap 11 — Deployment
+## 13. Tahap 11 — Troubleshooting LCD 20x4
+
+### LCD tidak menyala / blank
+
+**Penyebab umum:**
+1. **Power tidak cukup**
+   - Pastikan LCD dapat power dari supply eksternal 5V (minimal 2A)
+   - Jangan ambil power dari pin 3.3V ESP32 (LCD butuh ~60-80mA)
+   
+2. **I2C address salah**
+   - Address umum: `0x27` atau `0x3F`
+   - Scan I2C untuk cek address:
+   ```cpp
+   Wire.begin(21, 22);
+   Wire.beginTransmission(0x27);
+   byte error = Wire.endTransmission();
+   if (error == 0) Serial.println("Found 0x27");
+   ```
+
+3. **Kontras terlalu rendah**
+   - Putar trimpot di belakang LCD module
+   - Putar searah jarum jam untuk tingkatkan kontras
+
+4. **Wiring salah**
+   - SDA harus ke GPIO21
+   - SCL harus ke GPIO22
+   - GND LCD harus sama dengan GND ESP32
+
+### LCD tampil tapi karakter acak
+
+**Penyebab:**
+- I2C komunikasi noise/error
+- Kabel I2C terlalu panjang (max 1 meter untuk 400kHz)
+- Tidak ada pull-up resistor (biasanya sudah ada di module)
+
+**Solusi:**
+- Pakai kabel lebih pendek
+- Tambah kapasitor 100nF antara VCC-GND LCD
+- Cek ground tidak floating
+
+### LCD hanya tampil baris pertama
+
+**Penyebab:**
+- Init LCD belum benar
+- Firmware masih pakai LCD 16x2 initialization
+
+**Solusi:**
+- Pastikan init di firmware: `LiquidCrystal_I2C lcd(0x27, 20, 4);`
+- Bukan: `LiquidCrystal_I2C lcd(0x27, 16, 2);`
+
+### Teks terpotong / overflow
+
+**Penyebab:**
+- String terlalu panjang untuk 20 karakter
+
+**Contoh di firmware:**
+```cpp
+// SALAH - bisa overflow
+lcd.print("PPM:1234 | warning udara");  // 26 karakter!
+
+// BENAR - sesuai layout
+lcd.print("PPM:1234 | warning");  // 19 karakter, aman
+```
+
+### Backlight tidak menyala
+
+**Penyebab:**
+- Jumper backlight di module tidak terpasang
+- Power backlight kurang
+
+**Solusi:**
+- Cek jumper di belakang module LCD (biasanya ada solder pad)
+- Pastikan VCC LCD 5V, bukan 3.3V
+
+### Tips Optimasi Display
+
+1. **Update LCD hanya saat berubah**
+   ```cpp
+   // Lebih efisien daripada lcd.clear() setiap loop
+   static float lastPPM = -1;
+   if (ppmValue != lastPPM) {
+     lcd.setCursor(4, 0);
+     lcd.print("    ");  // Clear old value
+     lcd.setCursor(4, 0);
+     lcd.print(ppmValue, 0);
+     lastPPM = ppmValue;
+   }
+   ```
+
+2. **Hindari lcd.clear() di loop**
+   - Firmware saat ini pakai `lcd.clear()` di `updateDisplay()`
+   - Aman karena dipanggil setiap 200ms (5Hz)
+   - Jika flicker muncul, pakai update parsial seperti di atas
+
+3. **Format angka konsisten**
+   ```cpp
+   // PPM tanpa desimal
+   lcd.print(ppmValue, 0);  // 123
+   
+   // Dust dengan 1 desimal
+   lcd.print(dustDensity, 1);  // 45.2
+   ```
+
+---
+
+## 14. Tahap 12 — Deployment
 
 Checklist:
 
