@@ -355,50 +355,51 @@ ThingSpeak HTTP response
 Free heap
 ```
 
-### Tampilan LCD 20x4 (2004 I2C)
+### Tampilan LCD 20x4 (2004 I2C) - Firmware dengan GP2YDustSensor Library
 
-Firmware terbaru menggunakan **LCD 20x4 I2C** dengan address `0x27`. Layout display 4 baris:
+Firmware terbaru menggunakan **LCD 20x4 I2C** dengan address `0x27` dan **library GP2YDustSensor** untuk pembacaan debu. Layout display 4 baris:
 
 ```text
-Baris 1: PPM:xxx | status
-Baris 2: Dust:xx.x mg/m3
-Baris 3: LED:GYR Fan:ON/OFF
-Baris 4: WiFi:ON/OFF
+Baris 1: Gas:xxxppm Status
+Baris 2: Dust:xxxx AMAN/BERDEBU
+Baris 3: LED:Hijau/Kuning/Merah
+Baris 4: WiFi:ON/OFF Fan:ON/OFF
 ```
 
 Detail setiap baris:
 
-**Baris 1 - Informasi PPM dan Status Udara:**
+**Baris 1 - Informasi Gas PPM dan Status:**
 ```text
-PPM:123 | warning
+Gas:297ppm Normal
 ```
-- `PPM:xxx`: Nilai PPM estimasi dari sensor MQ-135 (0-999)
-- `status`: Status udara (`normal` / `warning` / `danger`)
+- `Gas:xxxppm`: Nilai PPM estimasi dari sensor MQ-135 (0-999)
+- `Status`: Status kualitas udara (`Normal` / `Warning` / `Danger`)
 
-**Baris 2 - Kepadatan Debu:**
+**Baris 2 - Kepadatan Debu (ug/m³):**
 ```text
-Dust:45.2 mg/m3
+Dust:2850 AMAN
 ```
-- `Dust:xx.x`: Kepadatan debu dalam mg/m³ dari sensor GP2Y1010AU0F
-- Range: 0.0 - 999.9 mg/m³
+- `Dust:xxxx`: Kepadatan debu dalam **ug/m³** (mikrogram per meter kubik)
+- Range: 0 - 9999 ug/m³
+- Status: `AMAN` (< 3000 ug/m³) atau `BERDEBU` (≥ 3000 ug/m³)
+- **Note:** Output library dalam ug/m³, bukan mg/m³ (1 mg = 1000 ug)
 
-**Baris 3 - Status Relay Indikator dan Fan:**
+**Baris 3 - Status LED Indicator:**
 ```text
-LED:G-R Fan:ON
+LED:Hijau
 ```
-- `LED:`: Status 3 relay indicator lampu
-  - `G` = Green relay ON (PPM 0-49, kondisi normal)
-  - `Y` = Yellow relay ON (PPM 50-149 warning, atau dust ≥800)
-  - `R` = Red relay ON (PPM ≥150 danger)
-  - `-` = Relay OFF
-- `Fan:`: Status exhaust fan (`ON` atau `OFF`)
+- Menampilkan warna lampu aktif: `Hijau` / `Kuning` / `Merah` / `Off`
+- Hijau = Gas normal (PPM < 50) dan dust aman
+- Kuning = Gas warning (PPM 50-149) ATAU dust berdebu (≥ 3000 ug/m³)
+- Merah = Gas danger (PPM ≥ 150)
 
-**Baris 4 - Status WiFi:**
+**Baris 4 - Status WiFi dan Fan:**
 ```text
-WiFi:ON
+WiFi:ON  Fan:OFF
 ```
-- `WiFi:ON`: Terhubung ke WiFi dan ThingSpeak
-- `WiFi:OFF`: Tidak terhubung (sistem tetap berjalan lokal)
+- `WiFi:ON` / `OFF`: Status koneksi WiFi dan ThingSpeak
+- `Fan:ON` / `OFF`: Status exhaust fan
+- Fan ON jika: Gas danger (PPM ≥ 150) ATAU dust berdebu (≥ 3000 ug/m³)
 
 **Splash Screen Startup (2 detik):**
 ```text
@@ -426,63 +427,86 @@ Wiring tetap sama:
 
 ---
 
-### Format Output Serial Monitor
+### Format Output Serial Monitor - Firmware GP2YDustSensor Library
 
-Firmware terbaru menampilkan output serial yang lengkap setiap 200ms:
+Firmware dengan library GP2YDustSensor menampilkan output setiap 200ms:
 
-**Contoh output normal (PPM < 50, dust < 800):**
+**Contoh output normal (PPM < 50, dust < 3000 ug/m³):**
 ```text
-Nilai DO MQ-135: 1 | ADC AO: 1234 | AO Volt: 0.991V | PPM : 297 | normal | Wifi : ON | Dust ADC: 650 | Dust Volt: 0.522V | Dust Density: 0.000 mg/m3 | Dust Status: normal | Fan: OFF | Buzzer: OFF | Relay Hijau: ON | Relay Kuning: OFF | Relay Merah: OFF
+MQ-135 DO:1 | ADC:1234 | Volt:0.991V | PPM:297 | Status:Normal | Dust:2850 ug/m3 | DustAvg:2820 ug/m3 | AMAN | Fan:OFF (Gas:N Dust:N) | Buzzer:OFF | LED:Hijau | WiFi:ON
 ```
 
-**Contoh output warning (PPM 50-149):**
+**Contoh output warning (PPM 50-149, dust normal):**
 ```text
-Nilai DO MQ-135: 0 | ADC AO: 1850 | AO Volt: 1.487V | PPM : 446 | warning | Wifi : ON | Dust ADC: 720 | Dust Volt: 0.579V | Dust Density: 0.000 mg/m3 | Dust Status: normal | Fan: OFF | Buzzer: FLASHING | Relay Hijau: OFF | Relay Kuning: ON | Relay Merah: OFF
+MQ-135 DO:0 | ADC:1850 | Volt:1.487V | PPM:105 | Status:Warning | Dust:2950 ug/m3 | DustAvg:2900 ug/m3 | AMAN | Fan:OFF (Gas:N Dust:N) | Buzzer:FLASH | LED:Kuning | WiFi:ON
 ```
 
-**Contoh output danger (PPM ≥ 150):**
+**Contoh output danger gas (PPM ≥ 150):**
 ```text
-Nilai DO MQ-135: 0 | ADC AO: 2200 | AO Volt: 1.769V | PPM : 531 | danger | Wifi : ON | Dust ADC: 900 | Dust Volt: 0.724V | Dust Density: 24.800 mg/m3 | Dust Status: warning | Fan: ON | Buzzer: CONTINUOUS | Relay Hijau: OFF | Relay Kuning: OFF | Relay Merah: ON
+MQ-135 DO:0 | ADC:2200 | Volt:1.769V | PPM:531 | Status:Danger | Dust:2700 ug/m3 | DustAvg:2750 ug/m3 | AMAN | Fan:ON (Gas:Y Dust:N) | Buzzer:CONT | LED:Merah | WiFi:ON
+```
+
+**Contoh output dust berdebu (≥ 3000 ug/m³):**
+```text
+MQ-135 DO:1 | ADC:1200 | Volt:0.964V | PPM:289 | Status:Normal | Dust:3250 ug/m3 | DustAvg:3180 ug/m3 | BERDEBU | Fan:ON (Gas:N Dust:Y) | Buzzer:OFF | LED:Kuning | WiFi:ON
 ```
 
 **Penjelasan field output:**
 
-| Field | Keterangan | Range |
+| Field | Keterangan | Range / Value |
 |---|---|---|
-| `Nilai DO MQ-135` | Digital output sensor MQ-135 | 0 (gas terdeteksi) / 1 (normal) |
-| `ADC AO` | Nilai ADC 12-bit analog output MQ-135 | 0-4095 |
-| `AO Volt` | Tegangan analog MQ-135 dalam Volt | 0.000-3.300V |
+| `MQ-135 DO` | Digital output sensor MQ-135 | 0 (gas terdeteksi) / 1 (normal) |
+| `ADC` | Nilai ADC 12-bit analog output MQ-135 | 0-4095 |
+| `Volt` | Tegangan analog MQ-135 | 0.000-3.300V |
 | `PPM` | Estimasi PPM gas polutan | 0-999 |
-| `status` | Status kualitas udara | `normal` / `warning` / `danger` |
-| `Wifi` | Status koneksi WiFi | `ON` / `OFF` |
-| `Dust ADC` | Nilai ADC debu dari GP2Y1010AU0F | 0-4095 |
-| `Dust Volt` | Tegangan output sensor debu | 0.000-3.300V |
-| `Dust Density` | Kepadatan debu dalam mg/m³ | 0.000-999.999 |
-| `Dust Status` | Status debu | `normal` (< 800) / `warning` (≥ 800) |
+| `Status` | Status kualitas udara gas | `Normal` / `Warning` / `Danger` |
+| `Dust` | Instant dust density dari library | 0-9999 ug/m³ |
+| `DustAvg` | Running average dust (untuk kontrol) | 0-9999 ug/m³ |
+| `AMAN/BERDEBU` | Status debu | `AMAN` (< 3000) / `BERDEBU` (≥ 3000) |
 | `Fan` | Status exhaust fan | `ON` / `OFF` |
-| `Buzzer` | Pola buzzer aktif | `OFF` / `FLASHING` / `CONTINUOUS` |
-| `Relay Hijau` | Status relay lampu hijau (normal) | `ON` / `OFF` |
-| `Relay Kuning` | Status relay lampu kuning (warning) | `ON` / `OFF` |
-| `Relay Merah` | Status relay lampu merah (danger) | `ON` / `OFF` |
+| `(Gas:X Dust:Y)` | Hysteresis state fan | `Y` = aktif, `N` = tidak aktif |
+| `Buzzer` | Pola buzzer | `OFF` / `FLASH` / `CONT` |
+| `LED` | Warna lampu relay aktif | `Hijau` / `Kuning` / `Merah` |
+| `WiFi` | Status koneksi WiFi | `ON` / `OFF` |
 
-**Output startup serial:**
+**Output startup serial dengan library:**
 ```text
-Sugeng IOT start
-Wiring test awal aktif
-MQ-135 DO -> GPIO15
-MQ-135 AO -> GPIO34
-LCD SDA -> GPIO21
-LCD SCL -> GPIO22
-Buzzer -> GPIO27
-Relay fan -> GPIO26
-Relay hijau -> GPIO14
-Relay kuning -> GPIO12
-Relay merah -> GPIO13
-PPM 0-49 hijau | 50-149 kuning + buzzer ritme | >=150 fan + buzzer panjang
-Dust >= 800 paksa kuning + fan ON
-AO dibaca dengan ADC 12-bit + averaging
-ThingSpeak field1=ADC field2=Volt field3=PPM field4=Gas field5=DustDensity field6=Fan
-Test debu: Vo -> GPIO35 | LED -> GPIO25
+=== Sugeng IOT start ===
+Hardware:
+  MQ-135 DO -> GPIO15
+  MQ-135 AO -> GPIO34
+  GP2Y LED  -> GPIO25
+  GP2Y Vo   -> GPIO35
+  LCD SDA   -> GPIO21
+  LCD SCL   -> GPIO22
+  Buzzer    -> GPIO27
+  Relay fan -> GPIO26
+  Relay hijau  -> GPIO14
+  Relay kuning -> GPIO12
+  Relay merah  -> GPIO13
+
+Logika Gas MQ-135:
+  PPM 0-49:   Normal  -> Hijau
+  PPM 50-149: Warning -> Kuning + buzzer flash
+  PPM >=150:  Danger  -> Merah + fan ON + buzzer
+
+Logika Dust GP2Y1010AU0F:
+  < 3000 ug/m3:  AMAN    -> fan OFF
+  >= 3000 ug/m3: BERDEBU -> Kuning + fan ON
+
+Library GP2YDustSensor aktif:
+  - Timing otomatis: LED HIGH 320us, sample 280us
+  - Running average internal library
+  - Output: ug/m3 (1000 ug = 1 mg)
+
+ThingSpeak:
+  field1 = MQ135 ADC
+  field2 = MQ135 Voltage
+  field3 = MQ135 PPM
+  field4 = Gas Status (0/1)
+  field5 = Dust Density (mg/m3)
+  field6 = Fan Status (0/1)
+
 Connecting WiFi........
 WiFi connected: 192.168.1.100
 ```
@@ -511,51 +535,76 @@ ThingSpeak response: 200
 - Saat `warning`, lampu kuning ON dan buzzer flashing terus.
 - Saat `danger`, lampu merah ON, fan ON, buzzer bunyi terus.
 
-### GP2Y1010AU0F
+### GP2Y1010AU0F (dengan library GP2YDustSensor)
 
-- Pastikan timing LED pulse benar.
-- Gunakan kapasitor 220µF jika dibutuhkan.
-- Catat ADC udara bersih dan kondisi berdebu.
-- **Sensor debu sekarang menggunakan double filtering:**
-  - **Averaging 8 samples** saat pembacaan ADC untuk kurangi noise hardware
-  - **Moving average 5 readings** untuk smoothing nilai akhir
-- **Threshold dust:** 3.0 mg/m³
-- Saat dust ≥ 3.0 mg/m³: status BERDEBU, lampu kuning ON, fan ON
-- Saat dust < 3.0 mg/m³: status AMAN, fan OFF (jika gas juga normal)
-- **Total waktu sampling dust:** ~80ms (8 samples × 10ms timing)
-- **Moving average response time:** ~1 detik (5 readings × 200ms loop)
+**Firmware sekarang menggunakan library GP2YDustSensor** dari espboards.dev untuk simplicity dan reliability.
 
-#### Kenapa Dust Perlu Averaging?
+#### Install Library GP2YDustSensor
 
-**Sensor GP2Y1010AU0F sangat sensitif terhadap noise:**
-- Sensor optik lebih noise daripada sensor gas (MQ-135)
-- ADC ESP32 12-bit (~0.8mV per step) sangat sensitif
-- Rumus density mengamplifikasi noise: 15mV = 3 mg/m³
-- Tanpa filtering, fan akan nyala-mati-nyala (flickering)
+**Via Arduino IDE:**
+1. Buka Arduino IDE
+2. Menu: `Sketch` → `Include Library` → `Manage Libraries`
+3. Search: `GP2YDustSensor`
+4. Install library by **Lucian Sabo**
 
-**Solusi implementasi:**
+**Via GitHub:**
+- Repository: https://github.com/luciansabo/GP2YDustSensor
+- Manual install: copy folder ke `~/Documents/Arduino/libraries/`
+
+#### Keuntungan Pakai Library
+
+✅ **Timing otomatis** - LED pulse 320µs, sample 280µs handled library  
+✅ **Running average internal** - Smoothing otomatis dari library  
+✅ **Code lebih simple** - Tidak perlu manual timing dan averaging  
+✅ **Tested dan reliable** - Library sudah dipakai banyak project  
+
+#### Cara Pakai Library di Code
+
 ```cpp
-// 1. Hardware averaging (8 samples)
-int readDustAnalogAverage() {
-  long total = 0;
-  for (int i = 0; i < 8; i++) {
-    // timing sesuai datasheet
-    total += analogRead(DUST_VO_PIN);
-  }
-  return total / 8;
+#include <GP2YDustSensor.h>
+
+// Inisialisasi sensor
+GP2YDustSensor dustSensor(GP2YDustSensorType::GP2Y1010AU0F, DUST_LED_PIN, DUST_VO_PIN);
+
+void setup() {
+  // Init library (handle timing otomatis)
+  dustSensor.begin();
 }
 
-// 2. Software moving average (5 readings)
-float getFilteredDustDensity(float newValue) {
-  // simpan 5 pembacaan terakhir
-  // return rata-rata
+void loop() {
+  // Baca dust density (ug/m³)
+  float dustDensity = dustSensor.getDustDensity();      // Instant reading
+  float dustAverage = dustSensor.getRunningAverage();   // Running average
+  
+  // Running average lebih stabil untuk kontrol fan
+  if (dustAverage >= 3000.0f) {
+    // BERDEBU - fan ON
+  }
 }
 ```
 
-**Hasil:**
-- Pembacaan lebih stabil dan smooth
-- Fan tidak flickering
-- Response masih cukup cepat (~1 detik delay)
+#### Threshold dan Logika
+
+- **Threshold dust: 3000 ug/m³** (= 3.0 mg/m³)
+- **Unit output: ug/m³** (mikrogram per meter kubik)
+- **Konversi: 1 mg/m³ = 1000 ug/m³**
+
+**Logika kontrol:**
+- `< 3000 ug/m³` → Status: **AMAN** → Fan OFF, lampu hijau
+- `≥ 3000 ug/m³` → Status: **BERDEBU** → Fan ON, lampu kuning
+
+**Library benefits:**
+- Timing LED otomatis sesuai datasheet Sharp
+- Running average internal untuk stable reading
+- Tidak perlu manual filtering
+- Response time ~1 detik (internal averaging)
+
+#### Catatan Penting
+
+- Library handle timing LED pulse otomatis (HIGH 320µs, sample 280µs)
+- Running average dari library lebih stabil daripada instant reading
+- Output dalam **ug/m³**, ThingSpeak tetap pakai **mg/m³** (auto konversi di code)
+- Wiring tetap sama: GPIO25 (LED), GPIO35 (Vo), resistor 150Ω wajib
 
 #### Wiring GP2Y1010AU0F - PENTING!
 
