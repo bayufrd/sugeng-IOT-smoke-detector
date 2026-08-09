@@ -21,8 +21,8 @@
 #define PPM_WARNING_THRESHOLD 50.0f // ambang batas PPM untuk status warning
 #define PPM_DANGER_THRESHOLD 150.0f // ambang batas PPM untuk status danger (fan ON)
 #define PPM_NORMAL_THRESHOLD 50.0f // ambang batas PPM kembali normal (fan OFF)
-#define DUST_THRESHOLD_MGM3 2.0f // ambang batas mg/m³ untuk status ada debu (fan ON)
-#define DUST_NORMAL_THRESHOLD_MGM3 1.9f // ambang batas mg/m³ kembali tidak berdebu (fan OFF)
+#define DUST_THRESHOLD_MGM3 3.0f // ambang batas mg/m³ untuk status berdebu (fan ON)
+#define DUST_NORMAL_THRESHOLD_MGM3 3.0f // ambang batas mg/m³ kembali aman (fan OFF saat < 3.0)
 
 // inisialisasi LCD I2C 20x4 
 LiquidCrystal_I2C lcd(0x27, 20, 4);
@@ -139,13 +139,13 @@ bool updateBuzzerPattern(int airStatus) {
 // Fungsi untuk mendapatkan label status debu berdasarkan mg/m³
 const char* getDustStatusLabel(float dustDensity) {
   if (dustDensity >= DUST_THRESHOLD_MGM3) {
-    return "Ada debu";
+    return "BERDEBU";
   }
-  return "Tidak berdebu";
+  return "AMAN";
 }
 
 // Fungsi untuk memperbarui tampilan LCD dengan informasi terbaru
-void updateDisplay(float ppmValue, const char* airStatusLabel, bool wifiOn, const char* dustStatusLabel, bool fanOn, bool greenOn, bool yellowOn, bool redOn) {
+void updateDisplay(float ppmValue, const char* airStatusLabel, bool wifiOn, float dustDensity, const char* dustStatusLabel, bool fanOn, bool greenOn, bool yellowOn, bool redOn) {
   lcd.clear();
   
   // Baris 1: Gas PPM dan status
@@ -155,9 +155,11 @@ void updateDisplay(float ppmValue, const char* airStatusLabel, bool wifiOn, cons
   lcd.print(" ppm ");
   lcd.print(airStatusLabel);
   
-  // Baris 2: Status debu (tanpa nilai)
+  // Baris 2: Dust dengan nilai dan status
   lcd.setCursor(0, 1);
   lcd.print("Dust:");
+  lcd.print(dustDensity, 1);
+  lcd.print(" ");
   lcd.print(dustStatusLabel);
   
   // Baris 3: Status LED dengan nama lengkap
@@ -285,8 +287,8 @@ void setup() {
   Serial.println("Relay merah -> GPIO13");
   Serial.println("PPM 0-49 hijau | 50-149 kuning + buzzer ritme | >=150 merah + fan ON + buzzer panjang");
   Serial.println("Fan OFF saat PPM < 50 (normal)");
-  Serial.println("Dust < 2.0 mg/m3 = Tidak berdebu | >= 2.0 mg/m3 = Ada debu + fan ON");
-  Serial.println("Fan OFF saat dust < 2.0 mg/m3 (tidak berdebu)");
+  Serial.println("Dust < 3.0 mg/m3 = AMAN | >= 3.0 mg/m3 = BERDEBU + fan ON");
+  Serial.println("Fan OFF saat dust < 3.0 mg/m3 (aman)");
   Serial.println("AO dibaca dengan ADC 12-bit + averaging");
   Serial.println("ThingSpeak field1=ADC field2=Volt field3=PPM field4=Gas field5=DustDensity field6=Fan");
   Serial.println("Test debu: Vo -> GPIO35 | LED -> GPIO25");
@@ -329,11 +331,11 @@ void loop() {
   }
 
   // Hysteresis untuk fan dari debu (GP2Y1010AU0F)
-  // Fan ON saat dust >= 2.0 mg/m³ (ada debu)
-  // Fan OFF saat dust <= 1.9 mg/m³ (tidak berdebu)
+  // Fan ON saat dust >= 3.0 mg/m³ (berdebu)
+  // Fan OFF saat dust < 3.0 mg/m³ (aman)
   if (dustDensity >= DUST_THRESHOLD_MGM3) {
     fanActiveFromDust = true;
-  } else if (dustDensity <= DUST_NORMAL_THRESHOLD_MGM3) {
+  } else if (dustDensity < DUST_NORMAL_THRESHOLD_MGM3) {
     fanActiveFromDust = false;
   }
 
@@ -354,7 +356,7 @@ void loop() {
   digitalWrite(GREEN_RELAY_PIN, greenRelayOn ? HIGH : LOW);
   digitalWrite(YELLOW_RELAY_PIN, yellowRelayOn ? HIGH : LOW);
   digitalWrite(RED_RELAY_PIN, redRelayOn ? HIGH : LOW);
-  updateDisplay(ppmEstimate, getAirStatusLabel(airStatus), wifiOn, dustStatusLabel, fanOn, greenRelayOn, yellowRelayOn, redRelayOn);
+  updateDisplay(ppmEstimate, getAirStatusLabel(airStatus), wifiOn, dustDensity, dustStatusLabel, fanOn, greenRelayOn, yellowRelayOn, redRelayOn);
 
   // console log debuggin tampilan untuk mengecek adanya error atau tidak
   Serial.print("Nilai DO MQ-135: ");
