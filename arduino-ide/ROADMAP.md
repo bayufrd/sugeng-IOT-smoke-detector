@@ -167,41 +167,66 @@ Catatan:
 - Fan DC gunakan MOSFET jika ingin solusi lebih halus dan awet.
 - Fan AC gunakan relay/SSR dengan isolasi.
 
-### Wiring sensor debu GP2Y1010AU0F
+### Wiring sensor debu GP2Y1010AU0F (sesuai espboards.dev)
 
-Pin umum sensor/modul `GP2Y1010AU0F`:
+**⚠️ CRITICAL REQUIREMENTS:**
 
-- `V-LED` / `LED-VCC` -> `5V`
-- `LED-GND` -> `GND`
-- `LED` / `LED-CTRL` -> `GPIO25`
-- `S-GND` / `GND` -> `GND ESP32`
-- `Vo` -> `GPIO35`
-- `VCC` -> `5V`
+1. **Resistor 150Ω WAJIB** antara 5V dan V-LED (Pin 1 sensor)
+2. **LED timing:** GPIO25 HIGH untuk 320µs (sample pada 280µs), cycle 10ms
+3. **Conversion formula:** `density (mg/m³) = (Vo - 0.6V) × 0.17`
 
-Skema ringkas:
+**Pin connections GP2Y1010AU0F:**
+
+| Pin Sensor | Koneksi | ESP32 Pin | Keterangan |
+|---|---|---:|---|
+| Pin 6 (Vcc) | Required | 5V | Power supply (5V regulated) |
+| Pin 2 (LED-GND) | Required | GND | LED ground |
+| Pin 4 (S-GND) | Required | GND | Signal ground |
+| Pin 1 (V-LED) | **Required** | **5V via resistor 150Ω** | **LED power + resistor** |
+| Pin 3 (LED) | Required | GPIO25 | LED control pulse |
+| Pin 5 (Vo) | Required | GPIO35 (ADC1_CH6) | Analog output |
+
+**Skema wiring:**
 
 ```text
-GP2Y1010AU0F VCC        -> 5V ESP32
-GP2Y1010AU0F GND        -> GND ESP32
-GP2Y1010AU0F Vo         -> GPIO35
-GP2Y1010AU0F LED / ILED -> GPIO25
+5V ----[Resistor 150Ω]---- Pin 1 (V-LED)
+GND ----------------------- Pin 2 (LED-GND)
+GND ----------------------- Pin 4 (S-GND)
+GPIO25 -------------------- Pin 3 (LED)
+GPIO35 -------------------- Pin 5 (Vo)
+5V ------------------------ Pin 6 (Vcc)
 ```
 
-Catatan penting pemasangan:
+**Catatan penting:**
 
-- `GPIO35` hanya input, cocok untuk baca `Vo` analog.
-- Saat `WiFi` aktif, pakai `ADC1` seperti `GPIO35`, jangan `ADC2`.
-- Output `Vo` jangan melebihi `3.3V` ke ESP32. Jika modul output `5V`, pakai `voltage divider`.
-- Banyak modul `GP2Y1010AU0F` butuh resistor dan kapasitor bawaan. Jika pakai sensor bare, ikuti datasheet.
-- Arah lubang sensor jangan tertutup casing agar debu bisa lewat.
-- Ground sensor debu harus satu ground dengan `ESP32`.
+- ⚠️ **Resistor 150Ω wajib** untuk current limiting LED internal sensor
+- ⚠️ **Jangan sambung Pin 1 (V-LED) langsung ke 5V tanpa resistor** - LED bisa rusak
+- GPIO35 adalah ADC1_CH6 (input only), aman untuk WiFi aktif
+- Jangan pakai ADC2 saat WiFi aktif (akan conflict)
+- Output Vo maksimal ~3.5V, aman untuk ESP32 ADC (max 3.3V dengan attenuation)
+- Ground sensor harus sama dengan ground ESP32
+- Sensor perlu kapasitor 220µF antara Vcc-GND untuk stabilitas (opsional tapi disarankan)
+- Arah lubang sensor jangan tertutup casing
 
-Urutan test cepat:
+**Timing pembacaan (dalam code):**
 
-1. Sambung `VCC`, `GND`, dan `Vo` dulu.
-2. Pastikan `Vo` terbaca di `GPIO35`.
-3. Sambung pin `LED/ILED` ke `GPIO25` untuk pulse pembacaan.
-4. Baru gabungkan ke logika status udara dan upload cloud.
+```cpp
+digitalWrite(DUST_LED_PIN, HIGH);  // LED ON
+delayMicroseconds(280);             // Tunggu stabilisasi 280µs
+int raw = analogRead(DUST_VO_PIN);  // Baca ADC
+delayMicroseconds(40);              // Total HIGH: 320µs
+digitalWrite(DUST_LED_PIN, LOW);    // LED OFF
+delayMicroseconds(9680);            // Cycle OFF: 9680µs (total 10ms)
+```
+
+**Urutan test:**
+
+1. Sambung semua pin kecuali LED control dulu
+2. Pastikan Vo terbaca di GPIO35 (tanpa LED pulse, nilai ~0.6V udara bersih)
+3. Sambung GPIO25 untuk LED control
+4. Verifikasi timing dengan oscilloscope jika ada
+5. Test dengan tiup sensor - nilai Vo harus naik
+6. Gabungkan ke logika sistem
 
 ### Wiring relay + fan 2 kabel
 

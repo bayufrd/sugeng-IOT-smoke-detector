@@ -69,8 +69,10 @@ float estimateMQ135PPM(int analogValue) {
 }
 
 // Fungsi untuk memperkirakan kepadatan debu (mg/m3) dari tegangan debu
+// Rumus sesuai espboards.dev dan GP2YDustSensor library:
+// density (mg/m³) = (Vo - 0.6V) × 0.17
 float estimateDustDensity(float dustVoltage) {
-  float densityMgM3 = (dustVoltage - 0.6f) / 0.005f;
+  float densityMgM3 = (dustVoltage - 0.6f) * 0.17f;
   if (densityMgM3 < 0.0f) {
     densityMgM3 = 0.0f;
   }
@@ -78,15 +80,22 @@ float estimateDustDensity(float dustVoltage) {
 }
 
 // Fungsi untuk membaca nilai analog debu dengan averaging (8 samples)
+// Timing sesuai espboards.dev dan datasheet GP2Y1010AU0F:
+// 1. LED HIGH (ON) untuk menyalakan LED infrared
+// 2. Tunggu 280µs untuk stabilisasi cahaya
+// 3. Baca ADC analog output Vo
+// 4. Tunggu 40µs lagi (total HIGH = 320µs)
+// 5. LED LOW (OFF) untuk 9680µs
+// Total cycle: 10ms per sample
 int readDustAnalogAverage() {
   long total = 0;
   for (int i = 0; i < 8; i++) {
-    digitalWrite(DUST_LED_PIN, LOW);
-    delayMicroseconds(280);
-    total += analogRead(DUST_VO_PIN);
-    delayMicroseconds(40);
-    digitalWrite(DUST_LED_PIN, HIGH);
-    delayMicroseconds(9680);
+    digitalWrite(DUST_LED_PIN, HIGH);  // LED ON
+    delayMicroseconds(280);             // Tunggu stabilisasi
+    total += analogRead(DUST_VO_PIN);   // Baca ADC
+    delayMicroseconds(40);              // Total HIGH: 320µs
+    digitalWrite(DUST_LED_PIN, LOW);    // LED OFF
+    delayMicroseconds(9680);            // Sisa cycle: 9680µs
   }
   return total / 8;
 }
@@ -274,6 +283,33 @@ void setup() {
   digitalWrite(BUZZER_PIN, HIGH);
   delay(200);
   digitalWrite(BUZZER_PIN, LOW);
+#include <GP2YDustSensor.h>
+
+const uint8_t SHARP_LED_PIN = 14;   // Sharp Dust/particle sensor Led Pin
+const uint8_t SHARP_VO_PIN = A0;    // Sharp Dust/particle analog out pin used for reading 
+
+GP2YDustSensor dustSensor(GP2YDustSensorType::GP2Y1014AU0F, SHARP_LED_PIN, SHARP_VO_PIN);
+
+void setup() {
+  Serial.begin(9600);
+  //dustSensor.setBaseline(0.4); // set no dust voltage according to your own experiments
+  //dustSensor.setCalibrationFactor(1.1); // calibrate against precision instrument
+  dustSensor.begin();
+}
+
+void loop() {
+  Serial.print("Dust density: ");
+  Serial.print(dustSensor.getDustDensity());
+  Serial.print(" ug/m3; Running average: ");
+  Serial.print(dustSensor.getRunningAverage());
+  Serial.println(" ug/m3");
+  delay(1000);
+}
+
+  
+
+  
+
 
   analogReadResolution(12);
   analogSetPinAttenuation(MQ135_AO_PIN, ADC_11db);
@@ -311,8 +347,10 @@ void setup() {
   Serial.println("Fan OFF saat dust < 3.0 mg/m3 (aman)");
   Serial.println("MQ135 averaging: 16 samples | Dust averaging: 8 samples + moving average 5 readings");
   Serial.println("ThingSpeak field1=ADC field2=Volt field3=PPM field4=Gas field5=DustDensity field6=Fan");
-  Serial.println("Test debu: Vo -> GPIO35 | LED -> GPIO25");
-  Serial.println("V-LED (hijau) -> 5V | LED-GND (biru) -> GND (WAJIB untuk sensor bare)");
+  Serial.println("GP2Y1010AU0F: Vo -> GPIO35 | LED -> GPIO25");
+  Serial.println("GP2Y1010AU0F timing: LED HIGH 320us (sample at 280us), cycle 10ms");
+  Serial.println("WAJIB: Resistor 150ohm antara 5V dan V-LED (Pin 1 sensor)");
+  Serial.println("Rumus density: (Vo - 0.6V) x 0.17 = mg/m3 (sesuai espboards.dev)");
 
   connectWiFi();
 }
