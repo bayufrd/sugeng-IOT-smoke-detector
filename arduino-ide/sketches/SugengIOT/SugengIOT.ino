@@ -91,12 +91,26 @@ int readDustAnalogRaw() {
 // Fungsi untuk mendapatkan label status udara berdasarkan nilai status
 const char* getAirStatusLabel(int status) {
   if (status == AIR_WARNING) {
-    return "warning";
+    return "Warning";
   }
   if (status == AIR_DANGER) {
-    return "danger";
+    return "Danger";
   }
-  return "normal";
+  return "Normal";
+}
+
+// Fungsi untuk mendapatkan label LED berdasarkan status relay
+const char* getLEDStatusLabel(bool greenOn, bool yellowOn, bool redOn) {
+  if (redOn) {
+    return "Merah";
+  }
+  if (yellowOn) {
+    return "Kuning";
+  }
+  if (greenOn) {
+    return "Hijau";
+  }
+  return "Off";
 }
 
 // Fungsi untuk mengatur pola buzzer berdasarkan status udara
@@ -131,36 +145,32 @@ const char* getDustStatusLabel(float dustDensity) {
 }
 
 // Fungsi untuk memperbarui tampilan LCD dengan informasi terbaru
-void updateDisplay(float gasMgM3, const char* airStatusLabel, bool wifiOn, float dustDensity, const char* dustStatusLabel, bool fanOn, bool greenOn, bool yellowOn, bool redOn) {
+void updateDisplay(float ppmValue, const char* airStatusLabel, bool wifiOn, const char* dustStatusLabel, bool fanOn, bool greenOn, bool yellowOn, bool redOn) {
   lcd.clear();
   
-  // Baris 1: Gas mg/m³ dan status
+  // Baris 1: Gas PPM dan status
   lcd.setCursor(0, 0);
   lcd.print("Gas:");
-  lcd.print(gasMgM3, 0);
-  lcd.print("mg/m3 ");
+  lcd.print(ppmValue, 0);
+  lcd.print(" ppm ");
   lcd.print(airStatusLabel);
   
-  // Baris 2: Debu density dan status
+  // Baris 2: Status debu (tanpa nilai)
   lcd.setCursor(0, 1);
   lcd.print("Dust:");
-  lcd.print(dustDensity, 1);
-  lcd.print(" ");
   lcd.print(dustStatusLabel);
   
-  // Baris 3: Status relay
+  // Baris 3: Status LED dengan nama lengkap
   lcd.setCursor(0, 2);
   lcd.print("LED:");
-  lcd.print(greenOn ? "G" : "-");
-  lcd.print(yellowOn ? "Y" : "-");
-  lcd.print(redOn ? "R" : "-");
-  lcd.print(" Fan:");
-  lcd.print(fanOn ? "ON " : "OFF");
+  lcd.print(getLEDStatusLabel(greenOn, yellowOn, redOn));
   
-  // Baris 4: WiFi status
+  // Baris 4: WiFi dan Fan status
   lcd.setCursor(0, 3);
   lcd.print("WiFi:");
   lcd.print(wifiOn ? "ON " : "OFF");
+  lcd.print(" Fan:");
+  lcd.print(fanOn ? "ON" : "OFF");
 }
 
 // Fungsi untuk menghubungkan ke WiFi 
@@ -344,7 +354,7 @@ void loop() {
   digitalWrite(GREEN_RELAY_PIN, greenRelayOn ? HIGH : LOW);
   digitalWrite(YELLOW_RELAY_PIN, yellowRelayOn ? HIGH : LOW);
   digitalWrite(RED_RELAY_PIN, redRelayOn ? HIGH : LOW);
-  updateDisplay(gasMgM3, getAirStatusLabel(airStatus), wifiOn, dustDensity, dustStatusLabel, fanOn, greenRelayOn, yellowRelayOn, redRelayOn);
+  updateDisplay(ppmEstimate, getAirStatusLabel(airStatus), wifiOn, dustStatusLabel, fanOn, greenRelayOn, yellowRelayOn, redRelayOn);
 
   // console log debuggin tampilan untuk mengecek adanya error atau tidak
   Serial.print("Nilai DO MQ-135: ");
