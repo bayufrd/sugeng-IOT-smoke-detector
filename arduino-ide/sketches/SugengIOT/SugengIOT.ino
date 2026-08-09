@@ -34,6 +34,11 @@ bool buzzerState = false;
 bool fanActiveFromGas = false;
 bool fanActiveFromDust = false;
 
+// Moving average filter untuk dust sensor (5 readings)
+#define DUST_FILTER_SIZE 5
+float dustReadings[DUST_FILTER_SIZE] = {0.0f, 0.0f, 0.0f, 0.0f, 0.0f};
+int dustIndex = 0;
+
 // Fungsi untuk membaca nilai analog MQ135 dengan rata-rata
 int readMQ135AnalogAverage() {
   long total = 0;
@@ -72,15 +77,30 @@ float estimateDustDensity(float dustVoltage) {
   return densityMgM3;
 }
 
-// Fungsi untuk membaca nilai analog debu
-int readDustAnalogRaw() {
-  digitalWrite(DUST_LED_PIN, LOW);
-  delayMicroseconds(280);
-  int raw = analogRead(DUST_VO_PIN);
-  delayMicroseconds(40);
-  digitalWrite(DUST_LED_PIN, HIGH);
-  delayMicroseconds(9680);
-  return raw;
+// Fungsi untuk membaca nilai analog debu dengan averaging (8 samples)
+int readDustAnalogAverage() {
+  long total = 0;
+  for (int i = 0; i < 8; i++) {
+    digitalWrite(DUST_LED_PIN, LOW);
+    delayMicroseconds(280);
+    total += analogRead(DUST_VO_PIN);
+    delayMicroseconds(40);
+    digitalWrite(DUST_LED_PIN, HIGH);
+    delayMicroseconds(9680);
+  }
+  return total / 8;
+}
+
+// Fungsi moving average filter untuk smoothing dust density
+float getFilteredDustDensity(float newValue) {
+  dustReadings[dustIndex] = newValue;
+  dustIndex = (dustIndex + 1) % DUST_FILTER_SIZE;
+  
+  float sum = 0.0f;
+  for (int i = 0; i < DUST_FILTER_SIZE; i++) {
+    sum += dustReadings[i];
+  }
+  return sum / DUST_FILTER_SIZE;
 }
 
 // Fungsi untuk mendapatkan label status udara berdasarkan nilai status
@@ -289,9 +309,10 @@ void setup() {
   Serial.println("Fan OFF saat PPM < 50 (normal)");
   Serial.println("Dust < 3.0 mg/m3 = AMAN | >= 3.0 mg/m3 = BERDEBU + fan ON");
   Serial.println("Fan OFF saat dust < 3.0 mg/m3 (aman)");
-  Serial.println("AO dibaca dengan ADC 12-bit + averaging");
+  Serial.println("MQ135 averaging: 16 samples | Dust averaging: 8 samples + moving average 5 readings");
   Serial.println("ThingSpeak field1=ADC field2=Volt field3=PPM field4=Gas field5=DustDensity field6=Fan");
   Serial.println("Test debu: Vo -> GPIO35 | LED -> GPIO25");
+  Serial.println("V-LED (hijau) -> 5V | LED-GND (biru) -> GND (WAJIB untuk sensor bare)");
 
   connectWiFi();
 }
@@ -301,12 +322,13 @@ void loop() {
   // int inisiasi penyimpanan interger / numberic pasti (1,2,3,0)
   int nilaiDigital = digitalRead(MQ135_DO_PIN);
   int nilaiAnalog = readMQ135AnalogAverage();
-  int dustRaw = readDustAnalogRaw();
+  int dustRaw = readDustAnalogAverage(); // Pakai averaging 8 samples
 
   // inisiasi penyimpanan angka decimal koma dibelakang 
   float voltageAO = analogToVoltage(nilaiAnalog);
   float dustVoltage = analogToVoltage(dustRaw);
-  float dustDensity = estimateDustDensity(dustVoltage);
+  float dustDensityRaw = estimateDustDensity(dustVoltage);
+  float dustDensity = getFilteredDustDensity(dustDensityRaw); // Apply moving average filter
   float ppmEstimate = estimateMQ135PPM(nilaiAnalog);
   float gasMgM3 = ppmToMgM3(ppmEstimate);
 

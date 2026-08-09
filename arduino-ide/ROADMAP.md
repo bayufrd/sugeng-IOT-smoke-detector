@@ -491,9 +491,63 @@ ThingSpeak response: 200
 - Pastikan timing LED pulse benar.
 - Gunakan kapasitor 220µF jika dibutuhkan.
 - Catat ADC udara bersih dan kondisi berdebu.
-- Rule dust aktif di sketch hanya satu level: `dustRaw >= 800`.
-- Saat `dustRaw >= 800`, lampu kuning ON dan fan ON.
-- Dust tidak memakai banyak level status.
+- **Sensor debu sekarang menggunakan double filtering:**
+  - **Averaging 8 samples** saat pembacaan ADC untuk kurangi noise hardware
+  - **Moving average 5 readings** untuk smoothing nilai akhir
+- **Threshold dust:** 3.0 mg/m³
+- Saat dust ≥ 3.0 mg/m³: status BERDEBU, lampu kuning ON, fan ON
+- Saat dust < 3.0 mg/m³: status AMAN, fan OFF (jika gas juga normal)
+- **Total waktu sampling dust:** ~80ms (8 samples × 10ms timing)
+- **Moving average response time:** ~1 detik (5 readings × 200ms loop)
+
+#### Kenapa Dust Perlu Averaging?
+
+**Sensor GP2Y1010AU0F sangat sensitif terhadap noise:**
+- Sensor optik lebih noise daripada sensor gas (MQ-135)
+- ADC ESP32 12-bit (~0.8mV per step) sangat sensitif
+- Rumus density mengamplifikasi noise: 15mV = 3 mg/m³
+- Tanpa filtering, fan akan nyala-mati-nyala (flickering)
+
+**Solusi implementasi:**
+```cpp
+// 1. Hardware averaging (8 samples)
+int readDustAnalogAverage() {
+  long total = 0;
+  for (int i = 0; i < 8; i++) {
+    // timing sesuai datasheet
+    total += analogRead(DUST_VO_PIN);
+  }
+  return total / 8;
+}
+
+// 2. Software moving average (5 readings)
+float getFilteredDustDensity(float newValue) {
+  // simpan 5 pembacaan terakhir
+  // return rata-rata
+}
+```
+
+**Hasil:**
+- Pembacaan lebih stabil dan smooth
+- Fan tidak flickering
+- Response masih cukup cepat (~1 detik delay)
+
+#### Wiring GP2Y1010AU0F - PENTING!
+
+**Pin wajib disambung (6 pin total):**
+- **VCC (merah)** → 5V ESP32
+- **GND / S-GND (hitam)** → GND ESP32
+- **Vo (kuning)** → GPIO35 (output analog)
+- **LED (putih)** → GPIO25 (kontroler pulse)
+- **V-LED (hijau)** → 5V ← **WAJIB untuk LED internal**
+- **LED-GND (biru)** → GND ← **WAJIB untuk LED internal**
+
+**Catatan V-LED dan LED-GND:**
+- LED infrared internal **butuh power terpisah** dari V-LED
+- Jika tidak disambung, sensor **tidak akan bekerja**
+- Beberapa modul breakout sudah gabung V-LED+VCC internal
+- Sensor bare Sharp original **wajib** sambung semua 6 pin
+- Test dengan kamera HP: LED harus terlihat berkedip di kamera
 
 ---
 
