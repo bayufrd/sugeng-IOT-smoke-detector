@@ -163,7 +163,11 @@ Catatan:
   - `0-49` -> lampu hijau ON.
   - `50-149` -> lampu kuning ON, buzzer flashing terus, fan OFF.
   - `>=150` -> lampu merah ON, buzzer bunyi terus, fan ON.
-- Logika dust aktif sekarang: `dustRaw >= 800` -> lampu kuning ON dan fan ON.
+- Logika dust aktif sekarang:
+  - `< 1000 ug/m³` (`< 1.0 mg/m³`) -> AMAN, lampu hijau ON, fan OFF, buzzer OFF.
+  - `1000-1999 ug/m³` (`1.0-1.99 mg/m³`) -> AMAN, lampu kuning ON, buzzer flashing, fan OFF.
+  - `>= 2000 ug/m³` (`>= 2.0 mg/m³`) -> POLUSI, lampu merah ON, fan ON, buzzer bunyi terus.
+  - Fan dari dust baru OFF lagi saat nilai turun `< 1000 ug/m³`.
 - Fan DC gunakan MOSFET jika ingin solusi lebih halus dan awet.
 - Fan AC gunakan relay/SSR dengan isolasi.
 
@@ -361,7 +365,7 @@ Firmware terbaru menggunakan **LCD 20x4 I2C** dengan address `0x27` dan **librar
 
 ```text
 Baris 1: Gas:xxxppm Status
-Baris 2: Dust:xxxx AMAN/BERDEBU
+Baris 2: Dust:x.xxmg AMAN/POLUSI
 Baris 3: LED:Hijau/Kuning/Merah
 Baris 4: WiFi:ON/OFF Fan:ON/OFF
 ```
@@ -375,23 +379,26 @@ Gas:297ppm Normal
 - `Gas:xxxppm`: Nilai PPM estimasi dari sensor MQ-135 (0-999)
 - `Status`: Status kualitas udara (`Normal` / `Warning` / `Danger`)
 
-**Baris 2 - Kepadatan Debu (ug/m³):**
+**Baris 2 - Kepadatan Debu (mg/m³):**
 ```text
-Dust:2850 AMAN
+Dust:0.85mg AMAN
+Dust:2.10mg POLUSI
 ```
-- `Dust:xxxx`: Kepadatan debu dalam **ug/m³** (mikrogram per meter kubik)
-- Range: 0 - 9999 ug/m³
-- Status: `AMAN` (< 3000 ug/m³) atau `BERDEBU` (≥ 3000 ug/m³)
-- **Note:** Output library dalam ug/m³, bukan mg/m³ (1 mg = 1000 ug)
+- `Dust:x.xxmg`: Kepadatan debu ditampilkan dalam **mg/m³**.
+- Output library tetap **ug/m³**, firmware konversi display dengan `dustRunningAvg / 1000.0`.
+- `1000 ug/m³` tampil sebagai `1.00mg`.
+- Status display hanya `AMAN` atau `POLUSI`.
+- `AMAN`: dust `< 2000 ug/m³` (`< 2.0 mg/m³`), termasuk zona warning 1000-1999.
+- `POLUSI`: dust `>= 2000 ug/m³` (`>= 2.0 mg/m³`).
 
 **Baris 3 - Status LED Indicator:**
 ```text
 LED:Hijau
 ```
 - Menampilkan warna lampu aktif: `Hijau` / `Kuning` / `Merah` / `Off`
-- Hijau = Gas normal (PPM < 50) dan dust aman
-- Kuning = Gas warning (PPM 50-149) ATAU dust berdebu (≥ 3000 ug/m³)
-- Merah = Gas danger (PPM ≥ 150)
+- Hijau = Gas normal (PPM < 50) dan dust `< 1000 ug/m³`
+- Kuning = Gas warning (PPM 50-149) ATAU dust `1000-1999 ug/m³`
+- Merah = Gas danger (PPM ≥ 150) ATAU dust `>= 2000 ug/m³`
 
 **Baris 4 - Status WiFi dan Fan:**
 ```text
@@ -399,7 +406,8 @@ WiFi:ON  Fan:OFF
 ```
 - `WiFi:ON` / `OFF`: Status koneksi WiFi dan ThingSpeak
 - `Fan:ON` / `OFF`: Status exhaust fan
-- Fan ON jika: Gas danger (PPM ≥ 150) ATAU dust berdebu (≥ 3000 ug/m³)
+- Fan ON jika: Gas danger (PPM ≥ 150) ATAU dust polusi (`>= 2000 ug/m³`).
+- Fan dari dust OFF jika dust turun `< 1000 ug/m³`.
 
 **Splash Screen Startup (2 detik):**
 ```text
@@ -431,24 +439,29 @@ Wiring tetap sama:
 
 Firmware dengan library GP2YDustSensor menampilkan output setiap 200ms:
 
-**Contoh output normal (PPM < 50, dust < 3000 ug/m³):**
+**Contoh output normal (PPM < 50, dust < 1000 ug/m³):**
 ```text
-MQ-135 DO:1 | ADC:1234 | Volt:0.991V | PPM:297 | Status:Normal | Dust:2850 ug/m3 | DustAvg:2820 ug/m3 | AMAN | Fan:OFF (Gas:N Dust:N) | Buzzer:OFF | LED:Hijau | WiFi:ON
+MQ-135 DO:1 | ADC:1234 | Volt:0.991V | PPM:42 | Status:Normal | Dust:850 ug/m3 | DustAvg:820 ug/m3 (0.82 mg/m3) | AMAN | Fan:OFF (Gas:N Dust:N) | Buzzer:OFF | LED:Hijau | WiFi:ON
 ```
 
-**Contoh output warning (PPM 50-149, dust normal):**
+**Contoh output warning gas (PPM 50-149, dust normal):**
 ```text
-MQ-135 DO:0 | ADC:1850 | Volt:1.487V | PPM:105 | Status:Warning | Dust:2950 ug/m3 | DustAvg:2900 ug/m3 | AMAN | Fan:OFF (Gas:N Dust:N) | Buzzer:FLASH | LED:Kuning | WiFi:ON
+MQ-135 DO:0 | ADC:1850 | Volt:1.487V | PPM:105 | Status:Warning | Dust:850 ug/m3 | DustAvg:820 ug/m3 (0.82 mg/m3) | AMAN | Fan:OFF (Gas:N Dust:N) | Buzzer:FLASH | LED:Kuning | WiFi:ON
 ```
 
 **Contoh output danger gas (PPM ≥ 150):**
 ```text
-MQ-135 DO:0 | ADC:2200 | Volt:1.769V | PPM:531 | Status:Danger | Dust:2700 ug/m3 | DustAvg:2750 ug/m3 | AMAN | Fan:ON (Gas:Y Dust:N) | Buzzer:CONT | LED:Merah | WiFi:ON
+MQ-135 DO:0 | ADC:2200 | Volt:1.769V | PPM:531 | Status:Danger | Dust:850 ug/m3 | DustAvg:820 ug/m3 (0.82 mg/m3) | AMAN | Fan:ON (Gas:Y Dust:N) | Buzzer:CONT | LED:Merah | WiFi:ON
 ```
 
-**Contoh output dust berdebu (≥ 3000 ug/m³):**
+**Contoh output warning dust (1000-1999 ug/m³):**
 ```text
-MQ-135 DO:1 | ADC:1200 | Volt:0.964V | PPM:289 | Status:Normal | Dust:3250 ug/m3 | DustAvg:3180 ug/m3 | BERDEBU | Fan:ON (Gas:N Dust:Y) | Buzzer:OFF | LED:Kuning | WiFi:ON
+MQ-135 DO:1 | ADC:1200 | Volt:0.964V | PPM:42 | Status:Normal | Dust:1500 ug/m3 | DustAvg:1480 ug/m3 (1.48 mg/m3) | AMAN | Fan:OFF (Gas:N Dust:N) | Buzzer:FLASH | LED:Kuning | WiFi:ON
+```
+
+**Contoh output polusi dust (≥ 2000 ug/m³):**
+```text
+MQ-135 DO:1 | ADC:1200 | Volt:0.964V | PPM:42 | Status:Normal | Dust:2200 ug/m3 | DustAvg:2180 ug/m3 (2.18 mg/m3) | POLUSI | Fan:ON (Gas:N Dust:Y) | Buzzer:CONT | LED:Merah | WiFi:ON
 ```
 
 **Penjelasan field output:**
@@ -460,9 +473,9 @@ MQ-135 DO:1 | ADC:1200 | Volt:0.964V | PPM:289 | Status:Normal | Dust:3250 ug/m3
 | `Volt` | Tegangan analog MQ-135 | 0.000-3.300V |
 | `PPM` | Estimasi PPM gas polutan | 0-999 |
 | `Status` | Status kualitas udara gas | `Normal` / `Warning` / `Danger` |
-| `Dust` | Instant dust density dari library | 0-9999 ug/m³ |
-| `DustAvg` | Running average dust (untuk kontrol) | 0-9999 ug/m³ |
-| `AMAN/BERDEBU` | Status debu | `AMAN` (< 3000) / `BERDEBU` (≥ 3000) |
+| `Dust` | Instant dust density dari library | ug/m³ |
+| `DustAvg` | Running average dust untuk kontrol + konversi mg/m³ | ug/m³ dan mg/m³ |
+| `AMAN/POLUSI` | Status debu | `AMAN` (< 2000) / `POLUSI` (≥ 2000) |
 | `Fan` | Status exhaust fan | `ON` / `OFF` |
 | `(Gas:X Dust:Y)` | Hysteresis state fan | `Y` = aktif, `N` = tidak aktif |
 | `Buzzer` | Pola buzzer | `OFF` / `FLASH` / `CONT` |
@@ -491,8 +504,9 @@ Logika Gas MQ-135:
   PPM >=150:  Danger  -> Merah + fan ON + buzzer
 
 Logika Dust GP2Y1010AU0F:
-  < 3000 ug/m3:  AMAN    -> fan OFF
-  >= 3000 ug/m3: BERDEBU -> Kuning + fan ON
+  < 1000 ug/m3 (1.0 mg/m3):    AMAN -> Hijau, fan OFF
+  1000-1999 ug/m3 (1.0-1.9):  AMAN -> Kuning + buzzer flash
+  >= 2000 ug/m3 (2.0 mg/m3):   POLUSI -> Merah + fan ON + buzzer
 
 Library GP2YDustSensor aktif:
   - Timing otomatis: LED HIGH 320us, sample 280us
@@ -577,21 +591,30 @@ void loop() {
   float dustAverage = dustSensor.getRunningAverage();   // Running average
   
   // Running average lebih stabil untuk kontrol fan
-  if (dustAverage >= 3000.0f) {
-    // BERDEBU - fan ON
+  if (dustAverage >= 2000.0f) {
+    // POLUSI - fan ON + buzzer continuous + lampu merah
+  } else if (dustAverage >= 1000.0f) {
+    // Warning dust - buzzer flashing + lampu kuning
+  } else {
+    // AMAN - fan OFF + lampu hijau jika gas juga normal
   }
 }
 ```
 
 #### Threshold dan Logika
 
-- **Threshold dust: 3000 ug/m³** (= 3.0 mg/m³)
-- **Unit output: ug/m³** (mikrogram per meter kubik)
+- **Threshold warning dust: 1000 ug/m³** (= 1.0 mg/m³)
+- **Threshold polusi dust: 2000 ug/m³** (= 2.0 mg/m³)
+- **Threshold normal dust: < 1000 ug/m³** (= < 1.0 mg/m³), dipakai untuk mematikan fan.
+- **Unit output library: ug/m³** (mikrogram per meter kubik)
+- **Unit display LCD dan ThingSpeak: mg/m³**
 - **Konversi: 1 mg/m³ = 1000 ug/m³**
 
 **Logika kontrol:**
-- `< 3000 ug/m³` → Status: **AMAN** → Fan OFF, lampu hijau
-- `≥ 3000 ug/m³` → Status: **BERDEBU** → Fan ON, lampu kuning
+- `< 1000 ug/m³` → Status: **AMAN** → Fan OFF, buzzer OFF, lampu hijau jika gas normal
+- `1000-1999 ug/m³` → Status display: **AMAN** → Fan OFF, buzzer flashing, lampu kuning
+- `≥ 2000 ug/m³` → Status display: **POLUSI** → Fan ON, buzzer bunyi terus, lampu merah
+- Fan dust OFF lagi jika nilai turun `< 1000 ug/m³`
 
 **Library benefits:**
 - Timing LED otomatis sesuai datasheet Sharp
@@ -603,7 +626,7 @@ void loop() {
 
 - Library handle timing LED pulse otomatis (HIGH 320µs, sample 280µs)
 - Running average dari library lebih stabil daripada instant reading
-- Output dalam **ug/m³**, ThingSpeak tetap pakai **mg/m³** (auto konversi di code)
+- Output library dalam **ug/m³**, LCD dan ThingSpeak pakai **mg/m³** (auto konversi di code)
 - Wiring tetap sama: GPIO25 (LED), GPIO35 (Vo), resistor 150Ω wajib
 
 #### Wiring GP2Y1010AU0F - PENTING!
@@ -668,9 +691,12 @@ field6 = Fan Status (0 OFF, 1 ON)
 Catatan penting:
 
 - `Field 5` di sketch aktif sekarang isi `Dust Density (mg/m3)`.
-- Estimasi density dihitung dari [`estimateDustDensity()`](arduino-ide/sketches/SugengIOT/SugengIOT.ino:44).
-- Rumus awal: `(dustVoltage - 0.6) / 0.005` lalu nilai negatif jadi `0`.
-- Threshold debu di sketch aktif = `800` ADC.
+- Dust density dibaca dari library `GP2YDustSensor` dalam `ug/m³`.
+- Firmware mengirim `field5` dalam `mg/m³` dengan rumus `dustRunningAvg / 1000.0`.
+- Threshold dust aktif:
+  - warning: `>= 1000 ug/m³` (`>= 1.0 mg/m³`)
+  - polusi/fan ON: `>= 2000 ug/m³` (`>= 2.0 mg/m³`)
+  - normal/fan OFF: `< 1000 ug/m³` (`< 1.0 mg/m³`)
 - Field gas sekarang bernilai `1` untuk `warning` atau `danger`, dan `0` untuk `normal`.
 - Log serial sekarang menampilkan format `PPM : x | status | Wifi : ON / OFF` plus relay hijau/kuning/merah.
 - Interval upload minimal tetap `15 detik`.
@@ -821,7 +847,10 @@ Checklist:
 - `PPM 0-49` menyalakan lampu hijau.
 - `PPM 50-149` menyalakan lampu kuning, buzzer flashing, fan OFF.
 - `PPM >= 150` menyalakan lampu merah, buzzer bunyi terus, fan ON.
-- `dustRaw >= 800` menyalakan lampu kuning dan fan ON.
+- Dust `< 1000 ug/m³` menyalakan lampu hijau jika gas juga normal, buzzer OFF, fan OFF.
+- Dust `1000-1999 ug/m³` menyalakan lampu kuning, buzzer flashing, fan OFF.
+- Dust `>= 2000 ug/m³` menyalakan lampu merah, buzzer bunyi terus, fan ON, status `POLUSI`.
+- Fan dust mati lagi saat dust turun `< 1000 ug/m³`.
 - LCD dan serial menampilkan `Wifi : ON` atau `Wifi : OFF`.
 - Casing punya ventilasi.
 - Kabel rapi dan aman.
@@ -840,7 +869,9 @@ ADC udara bersih
 ADC asap/debu
 Threshold PPM 50
 Threshold PPM 150
-Threshold dust 800
+Threshold dust warning 1000 ug/m³
+Threshold dust polusi 2000 ug/m³
+Threshold dust normal/off < 1000 ug/m³
 Status relay hijau
 Status relay kuning
 Status relay merah

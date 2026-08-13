@@ -16,7 +16,9 @@
 #define RED_RELAY_PIN 13
 #define DUST_VO_PIN 35
 #define DUST_LED_PIN 25
-#define DUST_THRESHOLD_UGM3 3000.0f // 3000 ug/m³ = 3.0 mg/m³ (threshold berdebu)
+#define DUST_WARNING_THRESHOLD_UGM3 1000.0f // 1000 ug/m³ = 1.0 mg/m³ (warning polusi)
+#define DUST_DANGER_THRESHOLD_UGM3 2000.0f // 2000 ug/m³ = 2.0 mg/m³ (polusi, fan ON)
+#define DUST_NORMAL_THRESHOLD_UGM3 1000.0f // fan OFF saat dust kembali < 1000 ug/m³
 #define LCD_SDA_PIN 21
 #define LCD_SCL_PIN 22
 #define THINGSPEAK_UPDATE_INTERVAL_MS 15000UL // 15 detik batas waktu update ThingSpeak
@@ -88,15 +90,15 @@ const char* getLEDStatusLabel(bool greenOn, bool yellowOn, bool redOn) {
 }
 
 // Fungsi untuk mengatur pola buzzer berdasarkan status udara
-bool updateBuzzerPattern(int airStatus) {
+bool updateBuzzerPattern(int systemStatus) {
   unsigned long now = millis();
 
-  if (airStatus == AIR_DANGER) {
+  if (systemStatus == AIR_DANGER) {
     buzzerState = true;
     return true;
   }
 
-  if (airStatus != AIR_WARNING) {
+  if (systemStatus != AIR_WARNING) {
     buzzerState = false;
     lastBuzzerToggle = 0;
     return false;
@@ -110,16 +112,27 @@ bool updateBuzzerPattern(int airStatus) {
   return buzzerState;
 }
 
-// Fungsi untuk mendapatkan label status debu berdasarkan ug/m³
-const char* getDustStatusLabel(float dustDensityUgM3) {
-  if (dustDensityUgM3 >= DUST_THRESHOLD_UGM3) {
-    return "BERDEBU";
+// Fungsi untuk mendapatkan status debu berdasarkan ug/m³
+int getDustStatus(float dustDensityUgM3) {
+  if (dustDensityUgM3 >= DUST_DANGER_THRESHOLD_UGM3) {
+    return AIR_DANGER;
+  }
+  if (dustDensityUgM3 >= DUST_WARNING_THRESHOLD_UGM3) {
+    return AIR_WARNING;
+  }
+  return AIR_NORMAL;
+}
+
+// Fungsi untuk mendapatkan label status debu berdasarkan status
+const char* getDustStatusLabel(int dustStatus) {
+  if (dustStatus == AIR_DANGER) {
+    return "POLUSI";
   }
   return "AMAN";
 }
 
 // Fungsi untuk memperbarui tampilan LCD dengan informasi terbaru
-void updateDisplay(float ppmValue, const char* airStatusLabel, bool wifiOn, float dustDensityUgM3, const char* dustStatusLabel, bool fanOn, bool greenOn, bool yellowOn, bool redOn) {
+void updateDisplay(float ppmValue, const char* airStatusLabel, bool wifiOn, float dustDensityMgM3, const char* dustStatusLabel, bool fanOn, bool greenOn, bool yellowOn, bool redOn) {
   lcd.clear();
   
   // Baris 1: Gas PPM dan status
@@ -129,11 +142,11 @@ void updateDisplay(float ppmValue, const char* airStatusLabel, bool wifiOn, floa
   lcd.print("ppm ");
   lcd.print(airStatusLabel);
   
-  // Baris 2: Dust dengan nilai dan status (ug/m³)
+  // Baris 2: Dust dengan nilai mg/m³ dan status
   lcd.setCursor(0, 1);
   lcd.print("Dust:");
-  lcd.print(dustDensityUgM3, 0);
-  lcd.print(" ");
+  lcd.print(dustDensityMgM3, 2);
+  lcd.print("mg ");
   lcd.print(dustStatusLabel);
   
   // Baris 3: Status LED dengan nama lengkap
@@ -279,8 +292,9 @@ void setup() {
   Serial.println("  PPM >=150:  Danger  -> Merah + fan ON + buzzer");
   Serial.println();
   Serial.println("Logika Dust GP2Y1010AU0F:");
-  Serial.println("  < 3000 ug/m3:  AMAN    -> fan OFF");
-  Serial.println("  >= 3000 ug/m3: BERDEBU -> Kuning + fan ON");
+  Serial.println("  < 1000 ug/m3 (1.0 mg/m3):    AMAN -> Hijau, fan OFF");
+  Serial.println("  1000-1999 ug/m3 (1.0-1.9):  AMAN -> Kuning + buzzer flash");
+  Serial.println("  >= 2000 ug/m3 (2.0 mg/m3):   POLUSI -> Merah + fan ON + buzzer");
   Serial.println();
   Serial.println("Library GP2YDustSensor aktif:");
   Serial.println("  - Timing otomatis: LED HIGH 320us, sample 280us");
@@ -333,24 +347,29 @@ void loop() {
 
   // Hysteresis untuk fan dari debu (GP2Y1010AU0F)
   // Pakai running average untuk lebih stabil
-  // Fan ON saat dust >= 3000 ug/m³ (3.0 mg/m³)
-  // Fan OFF saat dust < 3000 ug/m³
-  if (dustRunningAvg >= DUST_THRESHOLD_UGM3) {
+  // Fan ON saat dust >= 2000 ug/m³ (2.0 mg/m³)
+  // Fan OFF saat dust < 1000 ug/m³ (1.0 mg/m³)
+  if (dustRunningAvg >= DUST_DANGER_THRESHOLD_UGM3) {
     fanActiveFromDust = true;
-  } else if (dustRunningAvg < DUST_THRESHOLD_UGM3) {
+  } else if (dustRunningAvg < DUST_NORMAL_THRESHOLD_UGM3) {
     fanActiveFromDust = false;
   }
 
   // Status debu
-  bool dustDetected = (dustRunningAvg >= DUST_THRESHOLD_UGM3);
-  const char* dustStatusLabel = getDustStatusLabel(dustRunningAvg);
+  int dustStatus = getDustStatus(dustRunningAvg);
+  float dustDensityMgM3 = dustRunningAvg / 1000.0f;
+  const char* dustStatusLabel = getDustStatusLabel(dustStatus);
+  int systemStatus = airStatus;
+  if (dustStatus > systemStatus) {
+    systemStatus = dustStatus;
+  }
 
   // Kontrol fan, buzzer, dan relay
   bool fanOn = fanActiveFromGas || fanActiveFromDust;
-  bool buzzerOn = updateBuzzerPattern(airStatus);
-  bool greenRelayOn = (airStatus == AIR_NORMAL) && !dustDetected;
-  bool yellowRelayOn = (airStatus == AIR_WARNING) || dustDetected;
-  bool redRelayOn = (airStatus == AIR_DANGER);
+  bool buzzerOn = updateBuzzerPattern(systemStatus);
+  bool greenRelayOn = (systemStatus == AIR_NORMAL);
+  bool yellowRelayOn = (systemStatus == AIR_WARNING);
+  bool redRelayOn = (systemStatus == AIR_DANGER);
 
   // Aktifkan hardware
   digitalWrite(BUZZER_PIN, buzzerOn ? HIGH : LOW);
@@ -360,7 +379,7 @@ void loop() {
   digitalWrite(RED_RELAY_PIN, redRelayOn ? HIGH : LOW);
   
   // Update LCD
-  updateDisplay(ppmEstimate, getAirStatusLabel(airStatus), wifiOn, dustRunningAvg, dustStatusLabel, fanOn, greenRelayOn, yellowRelayOn, redRelayOn);
+  updateDisplay(ppmEstimate, getAirStatusLabel(airStatus), wifiOn, dustDensityMgM3, dustStatusLabel, fanOn, greenRelayOn, yellowRelayOn, redRelayOn);
 
   // Serial monitor debug
   Serial.print("MQ-135 DO:");
@@ -377,7 +396,9 @@ void loop() {
   Serial.print(dustDensityUgM3, 0);
   Serial.print(" ug/m3 | DustAvg:");
   Serial.print(dustRunningAvg, 0);
-  Serial.print(" ug/m3 | ");
+  Serial.print(" ug/m3 (");
+  Serial.print(dustDensityMgM3, 2);
+  Serial.print(" mg/m3) | ");
   Serial.print(dustStatusLabel);
   Serial.print(" | Fan:");
   Serial.print(fanOn ? "ON" : "OFF");
@@ -386,7 +407,7 @@ void loop() {
   Serial.print(" Dust:");
   Serial.print(fanActiveFromDust ? "Y" : "N");
   Serial.print(") | Buzzer:");
-  Serial.print(buzzerOn ? (airStatus == AIR_DANGER ? "CONT" : "FLASH") : "OFF");
+  Serial.print(buzzerOn ? (systemStatus == AIR_DANGER ? "CONT" : "FLASH") : "OFF");
   Serial.print(" | LED:");
   Serial.print(getLEDStatusLabel(greenRelayOn, yellowRelayOn, redRelayOn));
   Serial.print(" | WiFi:");
