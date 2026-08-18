@@ -1,9 +1,10 @@
-// install library yang dibutuhkan: LiquidCrystal_I2C, WiFi, HTTPClient, GP2YDustSensor
+// install library yang dibutuhkan: LiquidCrystal_I2C, WiFi, HTTPClient, GP2YDustSensor, MQ135
 #include <Wire.h>
 #include <WiFi.h>
 #include <HTTPClient.h>
 #include <LiquidCrystal_I2C.h>
 #include <GP2YDustSensor.h>
+#include <MQ135.h> // Tambahan Library MQ135
 #include "config.h"
 
 // inisiasi pin dan konstanta 
@@ -17,18 +18,19 @@
 #define DUST_VO_PIN 35
 #define DUST_LED_PIN 25
 #define DUST_WARNING_THRESHOLD_UGM3 1000.0f // 1000 ug/m³ = 1.0 mg/m³ (warning polusi)
-#define DUST_DANGER_THRESHOLD_UGM3 2000.0f // 2000 ug/m³ = 2.0 mg/m³ (polusi, fan ON)
-#define DUST_NORMAL_THRESHOLD_UGM3 1000.0f // fan OFF saat dust kembali < 1000 ug/m³
+#define DUST_DANGER_THRESHOLD_UGM3 2000.0f  // 2000 ug/m³ = 2.0 mg/m³ (polusi, fan ON)
+#define DUST_NORMAL_THRESHOLD_UGM3 1000.0f  // fan OFF saat dust kembali < 1000 ug/m³
 #define LCD_SDA_PIN 21
 #define LCD_SCL_PIN 22
 #define THINGSPEAK_UPDATE_INTERVAL_MS 15000UL // 15 detik batas waktu update ThingSpeak
-#define PPM_WARNING_THRESHOLD 50.0f // ambang batas PPM untuk status warning
-#define PPM_DANGER_THRESHOLD 150.0f // ambang batas PPM untuk status danger (fan ON)
-#define PPM_NORMAL_THRESHOLD 50.0f // ambang batas PPM kembali normal (fan OFF)
+#define PPM_WARNING_THRESHOLD 50.0f  // ambang batas PPM untuk status warning
+#define PPM_DANGER_THRESHOLD 150.0f  // ambang batas PPM untuk status danger (fan ON)
+#define PPM_NORMAL_THRESHOLD 50.0f   // ambang batas PPM kembali normal (fan OFF)
 
-// inisialisasi LCD I2C 20x4 dan GP2Y dust sensor library
+// inisialisasi LCD I2C 20x4, GP2Y dust sensor, dan MQ135 sensor library
 LiquidCrystal_I2C lcd(0x27, 20, 4);
 GP2YDustSensor dustSensor(GP2YDustSensorType::GP2Y1010AU0F, DUST_LED_PIN, DUST_VO_PIN);
+MQ135 mq135_sensor = MQ135(MQ135_AO_PIN); // Inisialisasi Objek MQ135
 
 unsigned long lastThingSpeakUpdate = 0;
 unsigned long lastBuzzerToggle = 0;
@@ -37,28 +39,6 @@ bool buzzerState = false;
 // State fan dengan hysteresis untuk mencegah flickering
 bool fanActiveFromGas = false;
 bool fanActiveFromDust = false;
-
-// Fungsi untuk membaca nilai analog MQ135 dengan rata-rata
-int readMQ135AnalogAverage() {
-  long total = 0;
-  for (int i = 0; i < 16; i++) {
-    total += analogRead(MQ135_AO_PIN);
-    delay(2);
-  }
-  return total / 16;
-}
-
-// Fungsi untuk mengubah nilai analog menjadi tegangan (Volt)
-float analogToVoltage(int analogValue) {
-  return analogValue * (3.3f / 4095.0f);
-}
-
-// Fungsi untuk memperkirakan nilai PPM MQ135
-float estimateMQ135PPM(int analogValue) {
-  float voltage = analogToVoltage(analogValue);
-  // factor → output PPM udara bersih <50 (misal 1V*40=40), modif sesuai kebutuhan normalling
-  return voltage * 40.0f;
-}
 
 // Status udara
 #define AIR_NORMAL 0
@@ -71,23 +51,23 @@ const char* getAirStatusLabel(int status) {
     return "Warning";
   }
   if (status == AIR_DANGER) {
-    return "Danger";
+    return "Danger ";
   }
-  return "Normal";
+  return "Normal ";
 }
 
 // Fungsi untuk mendapatkan label LED berdasarkan status relay
 const char* getLEDStatusLabel(bool greenOn, bool yellowOn, bool redOn) {
   if (redOn) {
-    return "Merah";
+    return "Merah ";
   }
   if (yellowOn) {
     return "Kuning";
   }
   if (greenOn) {
-    return "Hijau";
+    return "Hijau ";
   }
-  return "Off";
+  return "Off   ";
 }
 
 // Fungsi untuk mengatur pola buzzer berdasarkan status udara
@@ -124,43 +104,42 @@ int getDustStatus(float dustDensityUgM3) {
   return AIR_NORMAL;
 }
 
-// Fungsi untuk mendapatkan label status debu berdasarkan status
+// Fungsi untuk mendapatkan label status debu (Diperbarui untuk aman - warning - polusi)
 const char* getDustStatusLabel(int dustStatus) {
   if (dustStatus == AIR_DANGER) {
-    return "POLUSI";
+    return "POLUSI "; // Padding spasi agar menimpa karakter lama di LCD
   }
-  return "AMAN";
+  if (dustStatus == AIR_WARNING) {
+    return "WARNING";
+  }
+  return "AMAN   "; 
 }
 
 // Fungsi untuk memperbarui tampilan LCD dengan informasi terbaru
 void updateDisplay(float ppmValue, const char* airStatusLabel, bool wifiOn, float dustDensityMgM3, const char* dustStatusLabel, bool fanOn, bool greenOn, bool yellowOn, bool redOn) {
-  lcd.clear();
-  
-  // Baris 1: Gas PPM dan status
+  // Hanya memperbarui area tertentu untuk menghindari LCD berkedip
   lcd.setCursor(0, 0);
   lcd.print("Gas:");
   lcd.print(ppmValue, 0);
   lcd.print("ppm ");
   lcd.print(airStatusLabel);
   
-  // Baris 2: Dust dengan nilai mg/m³ dan status
   lcd.setCursor(0, 1);
   lcd.print("Dust:");
   lcd.print(dustDensityMgM3, 2);
   lcd.print("mg ");
   lcd.print(dustStatusLabel);
   
-  // Baris 3: Status LED dengan nama lengkap
   lcd.setCursor(0, 2);
   lcd.print("LED:");
   lcd.print(getLEDStatusLabel(greenOn, yellowOn, redOn));
+  lcd.print("   "); // Membersihkan sisa karakter
   
-  // Baris 4: WiFi dan Fan status
   lcd.setCursor(0, 3);
   lcd.print("WiFi:");
   lcd.print(wifiOn ? "ON " : "OFF");
   lcd.print(" Fan:");
-  lcd.print(fanOn ? "ON" : "OFF");
+  lcd.print(fanOn ? "ON " : "OFF");
 }
 
 // Fungsi untuk menghubungkan ke WiFi 
@@ -268,6 +247,7 @@ void setup() {
   lcd.setCursor(0, 3);
   lcd.print("    Starting...");
   delay(2000);
+  lcd.clear(); // Bersihkan layar setelah loading
 
   // Inisialisasi GP2Y dust sensor library
   dustSensor.begin();
@@ -293,14 +273,9 @@ void setup() {
   Serial.println("  PPM >=150:  Danger  -> Merah + fan ON + buzzer");
   Serial.println();
   Serial.println("Logika Dust GP2Y1010AU0F:");
-  Serial.println("  < 1000 ug/m3 (1.0 mg/m3):    AMAN -> Hijau, fan OFF");
-  Serial.println("  1000-1999 ug/m3 (1.0-1.9):  AMAN -> Kuning + buzzer flash");
-  Serial.println("  >= 2000 ug/m3 (2.0 mg/m3):   POLUSI -> Merah + fan ON + buzzer");
-  Serial.println();
-  Serial.println("Library GP2YDustSensor aktif:");
-  Serial.println("  - Timing otomatis: LED HIGH 320us, sample 280us");
-  Serial.println("  - Running average internal library");
-  Serial.println("  - Output: ug/m3 (1000 ug = 1 mg)");
+  Serial.println("  < 1000 ug/m3 (1.0 mg/m3):   AMAN -> Hijau, fan OFF");
+  Serial.println("  1000-1999 ug/m3 (1.0-1.9):  WARNING -> Kuning + buzzer flash");
+  Serial.println("  >= 2000 ug/m3 (2.0 mg/m3):  POLUSI -> Merah + fan ON + buzzer");
   Serial.println();
   Serial.println("ThingSpeak:");
   Serial.println("  field1 = MQ135 ADC");
@@ -314,13 +289,13 @@ void setup() {
   connectWiFi();
 }
 
-// fungsi utama looping atau pengulanangan pengecekan pada esp dan alatnya
+// fungsi utama looping atau pengulangan pengecekan pada esp dan alatnya
 void loop() {
-  // Baca sensor MQ-135
+  // Baca sensor MQ-135 menggunakan library
   int nilaiDigital = digitalRead(MQ135_DO_PIN);
-  int nilaiAnalog = readMQ135AnalogAverage();
-  float voltageAO = analogToVoltage(nilaiAnalog);
-  float ppmEstimate = estimateMQ135PPM(nilaiAnalog);
+  int nilaiAnalog = analogRead(MQ135_AO_PIN); 
+  float voltageAO = nilaiAnalog * (3.3f / 4095.0f); // Hanya untuk display/ThingSpeak
+  float ppmEstimate = mq135_sensor.getPPM();        // Menggunakan library untuk mendapatkan PPM
 
   // Baca sensor dust menggunakan library GP2YDustSensor
   float dustDensityUgM3 = dustSensor.getDustDensity();      // Instant reading (ug/m³)
@@ -338,8 +313,6 @@ void loop() {
   }
 
   // Hysteresis untuk fan dari gas (MQ135)
-  // Fan ON saat PPM >= 150 (danger)
-  // Fan OFF saat PPM < 50 (kembali normal)
   if (ppmEstimate >= PPM_DANGER_THRESHOLD) {
     fanActiveFromGas = true;
   } else if (ppmEstimate < PPM_NORMAL_THRESHOLD) {
@@ -347,9 +320,6 @@ void loop() {
   }
 
   // Hysteresis untuk fan dari debu (GP2Y1010AU0F)
-  // Pakai running average untuk lebih stabil
-  // Fan ON saat dust >= 2000 ug/m³ (2.0 mg/m³)
-  // Fan OFF saat dust < 1000 ug/m³ (1.0 mg/m³)
   if (dustRunningAvg >= DUST_DANGER_THRESHOLD_UGM3) {
     fanActiveFromDust = true;
   } else if (dustRunningAvg < DUST_NORMAL_THRESHOLD_UGM3) {
@@ -360,6 +330,8 @@ void loop() {
   int dustStatus = getDustStatus(dustRunningAvg);
   float dustDensityMgM3 = dustRunningAvg / 1000.0f;
   const char* dustStatusLabel = getDustStatusLabel(dustStatus);
+  
+  // Sistem membaca status yang lebih parah antara gas dan debu
   int systemStatus = airStatus;
   if (dustStatus > systemStatus) {
     systemStatus = dustStatus;
