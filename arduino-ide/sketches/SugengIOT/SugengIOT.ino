@@ -56,7 +56,8 @@ float analogToVoltage(int analogValue) {
 // Fungsi untuk memperkirakan nilai PPM MQ135
 float estimateMQ135PPM(int analogValue) {
   float voltage = analogToVoltage(analogValue);
-  return voltage * 300.0f;
+  // factor → output PPM udara bersih <50 (misal 1V*40=40), modif sesuai kebutuhan normalling
+  return voltage * 40.0f;
 }
 
 // Status udara
